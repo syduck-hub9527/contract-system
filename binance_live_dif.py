@@ -592,7 +592,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", self.html)
-        elif path == "/api/state":
+        elif path in ("/api/state", "/dif-api/state"):  # /dif-api/ 为反向代理使用的前缀
             data = json.dumps(self.radar.snapshot(), ensure_ascii=False, separators=(",", ":"))
             self._send(200, "application/json; charset=utf-8", data.encode("utf-8"))
         elif path == "/health":
@@ -613,7 +613,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             pass
 
     def log_message(self, fmt: str, *args):
-        if not self.path.startswith("/api/state"):
+        if not self.path.startswith(("/api/state", "/dif-api/state")):
             LOG.info("http %s - %s", self.address_string(), fmt % args)
 
 
