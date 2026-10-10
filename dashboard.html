@@ -175,12 +175,21 @@
   const classes = (n) => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
   // 确认信号和盘中信号可能同时存在（刚确认死叉、当前K线又反向穿越），
   // 两个都显示，保证徽章与筛选标签一致。
+  // 在“盘中”标签页只显示盘中信号，在“确认”标签页只显示确认信号，
+  // 避免金叉列表里出现“已确认死叉”这类与当前筛选相反的徽章；
+  // 其余标签页（接近零轴/全部）才同时显示两种。
   const badge = (r, near) => {
     const parts = [];
-    if (r.confirmed_cross === 'golden') parts.push('<span class="signal golden">✓ 已确认金叉</span>');
-    else if (r.confirmed_cross === 'death') parts.push('<span class="signal death">✓ 已确认死叉</span>');
-    if (r.live_cross === 'golden') parts.push('<span class="signal golden">↗ 盘中金叉</span>');
-    else if (r.live_cross === 'death') parts.push('<span class="signal death">↘ 盘中死叉</span>');
+    const showConfirmed = !filter.startsWith('live-');
+    const showLive = !filter.startsWith('confirmed-');
+    if (showConfirmed) {
+      if (r.confirmed_cross === 'golden') parts.push('<span class="signal golden">✓ 已确认金叉</span>');
+      else if (r.confirmed_cross === 'death') parts.push('<span class="signal death">✓ 已确认死叉</span>');
+    }
+    if (showLive) {
+      if (r.live_cross === 'golden') parts.push('<span class="signal golden">↗ 盘中金叉</span>');
+      else if (r.live_cross === 'death') parts.push('<span class="signal death">↘ 盘中死叉</span>');
+    }
     if (!parts.length && near) parts.push('<span class="signal near">◎ 接近零轴</span>');
     if (!parts.length) return '<span class="signal">—</span>';
     return `<span style="display:inline-flex;gap:6px">${parts.join('')}</span>`;
