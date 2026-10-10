@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="theme-color" content="#0b111c"/>
+  <title>合约 DIF 实时雷达 · 5分钟</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0a0e17;--panel:#121b2a;--panel2:#161f30;--stroke:#273245;--text:#eaf0f8;--muted:#8b9aad;--up:#25c49b;--down:#fa697f;--gold:#f8be4b;--blue:#6fa4ff; }
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(900px 370px at 74% -210px,#1c2b42,transparent 82%),var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.4;}
+    button,input,select{font:inherit} button{cursor:pointer}
+    .page{max-width:1470px;padding:28px 32px 45px;margin:auto}
+    header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:22px}
+    .brand{display:flex;align-items:center;gap:14px}
+    .mark{height:46px;width:46px;background:linear-gradient(150deg,#ffd57a,#df8d13);border-radius:12px;display:grid;place-items:center;color:#192231;font-weight:900;font-size:21px;box-shadow:0 9px 28px #f2a21b19}
+    .eyebrow{letter-spacing:2.2px;font-size:11px;text-transform:uppercase;color:var(--gold);font-weight:750;margin:0 0 3px}
+    h1{font-size:25px;font-weight:780;letter-spacing:-.6px;margin:0;line-height:1.15}
+    .sub{color:var(--muted);margin-top:8px;font-size:13px}
+    .livebar{display:flex;align-items:center;gap:16px;background:#111a28;border:1px solid var(--stroke);border-radius:12px;padding:11px 15px}
+    .live-status{font-size:12px;font-weight:700;white-space:nowrap}
+    .dot{display:inline-block;vertical-align:middle;width:8px;height:8px;border-radius:100%;background:#e7ad5a;margin-right:7px;box-shadow:0 0 0 4px #e7ad5a13}
+    .dot.online{background:var(--up);box-shadow:0 0 0 4px #25c49b16;animation:breathe 2s ease-in-out infinite}
+    .dot.error{background:var(--down);box-shadow:0 0 0 4px #fa697f16}
+    @keyframes breathe{50%{box-shadow:0 0 0 8px #25c49b07}}
+    .clock{text-align:right;color:var(--muted);font-size:12px;white-space:nowrap}
+    .clock strong{display:block;color:var(--text);font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}
+    .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:22px}
+    .card{background:linear-gradient(150deg,#151e2e,#111a27);border:1px solid var(--stroke);border-radius:14px;padding:17px 19px;min-height:109px}
+    .card-name{color:var(--muted);font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+    .card-name .symbol{font-size:16px;opacity:.65}
+    .card-value{font-weight:780;font-size:33px;letter-spacing:-.8px;margin-top:8px;font-variant-numeric:tabular-nums;line-height:1}
+    .card-note{color:var(--muted);font-size:11px;margin-top:10px}
+    .card .gold{color:var(--gold)}.card .green{color:var(--up)}.card .red{color:var(--down)}
+    .surface{border:1px solid var(--stroke);background:var(--panel);border-radius:16px;overflow:hidden;box-shadow:0 8px 28px #05091344}
+    .surface-top{padding:20px 21px 18px}
+    .title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    h2{margin:0;font-size:17px;font-weight:750;letter-spacing:-.1px}
+    .hint{color:var(--muted);font-size:12px}
+    .filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+    .tabs{display:flex;gap:3px;flex-wrap:wrap;background:#0c1420;border-radius:10px;padding:4px;border:1px solid var(--stroke)}
+    .tab{border:0;border-radius:7px;color:#a8b5c6;background:transparent;padding:9px 12px;font-size:12px;font-weight:650;white-space:nowrap}
+    .tab.active{background:#263248;color:#fff;box-shadow:0 1px 4px #0004}
+    .tab:hover:not(.active){background:#1a2738}
+    .controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-left:auto}
+    .control{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+    .control select,.control input[type=number],.search{background:#0e1724;color:var(--text);border:1px solid #344156;border-radius:8px;outline:0;padding:9px 10px;font-size:12px}
+    .control input[type=number]{width:82px;text-align:right;font-variant-numeric:tabular-nums}
+    .search{width:142px}
+    select:focus,input:focus{border-color:#d4a34c}
+    .check{display:flex;align-items:center;gap:7px;color:#acb9cb;font-size:12px;cursor:pointer;white-space:nowrap}
+    .check input{accent-color:#f3bb48}
+    .infobar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;padding:11px 21px;background:#101827;border-top:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
+    .infobar b{color:var(--text);font-weight:750}
+    .spin{display:inline-block;width:10px;height:10px;border:2px solid #546681;border-top-color:var(--gold);border-radius:50%;animation:rotate 1s linear infinite;vertical-align:-1px;margin-right:6px}
+    @keyframes rotate{to{transform:rotate(360deg)}}
+    .scroll{max-height:clamp(450px,62vh,860px);overflow:auto;scrollbar-color:#334157 transparent;}
+    table{border-collapse:collapse;width:100%;min-width:1040px;text-align:left;font-size:12px;font-variant-numeric:tabular-nums}
+    thead{position:sticky;top:0;z-index:3;background:#1a2638}
+    thead th{color:#91a4bf;font-size:11px;font-weight:750;letter-spacing:.3px;padding:14px 15px;white-space:nowrap;border-bottom:1px solid #334159}
+    tbody td{border-bottom:1px solid #202a3a;padding:13px 15px;white-space:nowrap}
+    tbody tr:hover{background:#1b293b}
+    tbody tr:last-child td{border-bottom:0}
+    .name{font-weight:760;font-size:13px;letter-spacing:.1px;color:#ecf2f9}
+    .num{text-align:right;font-weight:650}
+    th.right,td.right{text-align:right}
+    .pos{color:var(--up)!important}.neg{color:var(--down)!important}
+    .muted{color:var(--muted)}
+    .market{display:inline-block;color:#a8bada;border:1px solid #34445d;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:700}
+    .market.cm{color:#e0b4f0;border-color:#624f71}
+    .signal{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:5px 8px;font-size:11px;font-weight:750;color:#8395ac;background:#222c3a}
+    .signal.golden{color:#31dfb0;background:#12493d}
+    .signal.death{color:#ff8192;background:#4a2331}
+    .signal.near{color:var(--gold);background:#46391d}
+    .trend{font-weight:700;font-size:12px}
+    .link{color:#a4c5ff;text-decoration:none;font-size:12px;font-weight:620}
+    .link:hover{text-decoration:underline}
+    .stale{opacity:.55}
+    .empty{min-height:230px;display:grid;place-items:center;text-align:center;padding:45px;color:var(--muted)}
+    .empty-icon{font-size:34px;margin-bottom:9px}
+    .progress-wrap{height:3px;background:#1a2635}
+    .progress{height:3px;width:0;background:linear-gradient(90deg,#aa781f,#ffd16d);transition:width .5s ease}
+    .bottombar{padding:13px 19px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;color:#8797ab;font-size:11px;border-top:1px solid var(--stroke)}
+    .warning{margin-bottom:14px;background:#3a2920;border:1px solid #75533e;border-radius:11px;padding:13px 16px;color:#f6caab;font-size:12px;display:none}
+    .warning.show{display:block}
+    footer{margin-top:20px;color:#7f8ea4;font-size:12px;line-height:1.8;display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+    footer b{color:#bfcedf}
+    @media(max-width:1050px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{margin-left:0}.page{padding:22px 16px}}
+    @media(max-width:620px){header{flex-direction:column}.livebar{width:100%;justify-content:space-between}.cards{gap:8px}.card{padding:14px}.card-value{font-size:27px}.surface-top{padding:16px 12px}.tabs{width:100%}.tab{flex-grow:1;padding:8px 7px}.page{padding:17px 10px}h1{font-size:22px}.filters{gap:12px}}
+  </style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <div class="brand">
+        <div class="mark">∑</div>
+        <div><div class="eyebrow">BINANCE FUTURES · LIVE MONITOR</div><h1>DIF 零轴实时雷达</h1></div>
+      </div>
+      <div class="sub">5分钟 K线 &nbsp;·&nbsp; DIF = EMA(21) − EMA(50) &nbsp;·&nbsp; EMA(200) 趋势参照</div>
+    </div>
+    <div class="livebar">
+      <div class="live-status"><span class="dot" id="live-dot"></span><span id="connection">准备连接...</span></div>
+      <div class="clock"><strong id="now">--:--:--</strong><span id="ws-caption">等待行情</span></div>
+    </div>
+  </header>
+  <div class="warning" id="warning"></div>
+  <div class="cards">
+    <div class="card"><div class="card-name">已载入的永续合约 <span class="symbol">◫</span></div><div class="card-value" id="m-loaded">--</div><div class="card-note" id="m-progress">正在加载交易对</div></div>
+    <div class="card"><div class="card-name">DIF 接近零轴 <span class="symbol">◎</span></div><div class="card-value gold" id="m-near">--</div><div class="card-note" id="m-threshold">|DIF / 价格| ≤ 0.020%</div></div>
+    <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
+    <div class="card"><div class="card-name">已确认金叉 / 死叉 <span class="symbol">✓</span></div><div class="card-value" id="m-confirmed"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">最近5分钟的收盘信号</div></div>
+  </div>
+  <section class="surface">
+    <div class="surface-top">
+      <div class="title-row"><h2>合约信号监控</h2><div class="hint">按 DIF 距离零轴由近到远排序 · 自动刷新无需手动操作</div></div>
+      <div class="filters">
+        <div class="tabs" role="group" aria-label="筛选信号">
+          <button class="tab active" data-filter="near">接近零轴</button>
+          <button class="tab" data-filter="live-golden">盘中金叉</button>
+          <button class="tab" data-filter="live-death">盘中死叉</button>
+          <button class="tab" data-filter="confirmed-golden">确认金叉</button>
+          <button class="tab" data-filter="confirmed-death">确认死叉</button>
+          <button class="tab" data-filter="all">全部</button>
+        </div>
+        <div class="controls">
+          <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
+          <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" max="1.0" step="0.005" value="0.020"/> %</label>
+          <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
+        </div>
+      </div>
+      <div class="filters" style="margin-top:13px">
+        <label class="check"><input type="checkbox" id="above200"/> 仅看价格在EMA200上方</label>
+        <label class="check"><input type="checkbox" id="online"/> 仅看已连通实时行情</label>
+      </div>
+    </div>
+    <div class="infobar"><span><span id="loading"></span><span id="count">等待加载...</span></span><span id="refresh">行情更新时间 —</span></div>
+    <div class="progress-wrap"><div class="progress" id="progress"></div></div>
+    <div class="scroll">
+      <table id="table">
+        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
+    </div>
+    <div class="bottombar"><div>盘中信号会变化或消失；<b>确认金叉/死叉</b> 仅在5分钟K线收盘后产生。</div><div>DIF百分比 = (EMA21−EMA50) ÷ 最新价 × 100%</div></div>
+  </section>
+  <footer>
+    <span><b>只读行情工具</b> · 不需要API Key · 不会下单 · 非投资建议</span>
+    <span>币安公开REST + WebSocket · 每2秒更新页面 · 若断网请观察连接状态</span>
+  </footer>
+</div>
+<script>
+(() => {
+  'use strict';
+  let latest = null;
+  let filter = 'near';
+  let failed = false;
+  let pending = false;
+  const $ = (id) => document.getElementById(id);
+  const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString('zh-CN', {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+  const numberFmt = (n) => {
+    if (!Number.isFinite(n)) return '—';
+    const a = Math.abs(n);
+    if (a >= 1000) return n.toLocaleString('en-US', {maximumFractionDigits: 2});
+    if (a >= 1) return n.toFixed(4).replace(/0+$/,'').replace(/\.$/,'');
+    if (a >= .001) return n.toFixed(7).replace(/0+$/,'').replace(/\.$/,'');
+    return n.toPrecision(7);
+  };
+  const escape = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const threshold = () => {
+    const t = parseFloat($('threshold').value);
+    return Number.isFinite(t) ? Math.min(1,Math.max(.001,t)) : .02;
+  };
+  const classes = (n) => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+  const badge = (r, near) => {
+    if (r.confirmed_cross === 'golden') return '<span class="signal golden">✓ 已确认金叉</span>';
+    if (r.confirmed_cross === 'death') return '<span class="signal death">✓ 已确认死叉</span>';
+    if (r.live_cross === 'golden') return '<span class="signal golden">↗ 盘中金叉</span>';
+    if (r.live_cross === 'death') return '<span class="signal death">↘ 盘中死叉</span>';
+    if (near) return '<span class="signal near">◎ 接近零轴</span>';
+    return '<span class="signal">—</span>';
+  };
+  function matching(row, t) {
+    if ($('market').value !== 'all' && row.market !== $('market').value) return false;
+    if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
+    if ($('above200').checked && !row.above200) return false;
+    if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
+    if (filter === 'near') return Math.abs(row.dif_pct) <= t;
+    if (filter === 'live-golden') return row.live_cross === 'golden';
+    if (filter === 'live-death') return row.live_cross === 'death';
+    if (filter === 'confirmed-golden') return row.confirmed_cross === 'golden';
+    if (filter === 'confirmed-death') return row.confirmed_cross === 'death';
+    return true;
+  }
+  function render() {
+    if (!latest) return;
+    const state = latest;
+    const rows = state.rows || [];
+    const t = threshold();
+    const filtered = rows.filter(r => matching(r, t));
+    const near = rows.filter(r => Math.abs(r.dif_pct) <= t).length;
+    const liveGold = rows.filter(r => r.live_cross === 'golden').length;
+    const liveDeath = rows.filter(r => r.live_cross === 'death').length;
+    const confGold = rows.filter(r => r.confirmed_cross === 'golden').length;
+    const confDeath = rows.filter(r => r.confirmed_cross === 'death').length;
+    $('m-loaded').textContent = state.loaded.toLocaleString();
+    $('m-progress').textContent = `已发现 ${state.total} 个 · 跳过 ${state.skipped} 个`;
+    $('m-near').textContent = near;
+    $('m-threshold').textContent = `|DIF / 价格| ≤ ${t.toFixed(3)}%`;
+    $('m-intra').innerHTML = `<span class="green">${liveGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${liveDeath}</span>`;
+    $('m-confirmed').innerHTML = `<span class="green">${confGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${confDeath}</span>`;
+    const isBoot = state.loaded + state.skipped < state.total;
+    $('progress').style.width = `${state.total ? 100*(state.loaded+state.skipped)/state.total : 0}%`;
+    $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
+    $('count').innerHTML = `符合筛选 <b>${filtered.length}</b> 个 &nbsp;·&nbsp; ${escape(state.phase)}`;
+    $('refresh').textContent = `面板刷新 ${fmtTime(state.server_time)} · WS ${state.ws_online}/${state.ws_expected}`;
+
+    const warnings = state.errors || [];
+    const problem = state.total === 0 && warnings.length;
+    const warningText = problem ? '无法获取币安合约行情：' + warnings[0] + '。检查网络连接、当地访问限制或稍后再试。' : (state.skipped > 0 ? `${state.skipped} 个合约暂时无法计算：可能是新上市历史不足、数据接口超时或地区网络限制。` : '');
+    $('warning').textContent = warningText;
+    $('warning').classList.toggle('show', !!warningText);
+
+    const dot = $('live-dot');
+    dot.classList.toggle('online', state.ws_online > 0);
+    dot.classList.toggle('error', problem || failed);
+    $('connection').textContent = failed ? '本地服务断开' : state.ws_online > 0 ? '行情已连接' : isBoot ? '初始化中...' : '等待实时连接';
+    $('ws-caption').textContent = `${state.ws_online}/${state.ws_expected} 条WS在线`;
+
+    $('table').style.display = filtered.length ? '' : 'none';
+    $('empty').style.display = filtered.length ? 'none' : '';
+    if (!filtered.length) {
+      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着扩大近零阈值或切换“全部”。';
+      $('tbody').innerHTML = '';
+      return;
+    }
+    const now = state.server_time;
+    $('tbody').innerHTML = filtered.map((r) => {
+      const stale = !r.ws_connected || r.resync_pending;
+      const active = now - r.updated_at <= 90 * 1000 && r.ws_connected && !r.resync_pending;
+      const link = r.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(r.symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(r.symbol)}`;
+      const trend = r.above200 ? '<span class="pos trend">↑ 上方</span>' : '<span class="neg trend">↓ 下方</span>';
+      const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : stale ? '连接中' : fmtTime(r.updated_at);
+      return `<tr class="${stale ? 'stale' : ''}">
+        <td class="name">${escape(r.symbol)}</td>
+        <td><span class="market ${r.market==='CM'?'cm':''}">${r.market === 'CM' ? '币本位' : 'U本位'}</span></td>
+        <td class="right num">${numberFmt(r.price)}</td>
+        <td class="right num ${classes(r.dif)}">${r.dif >= 0 ? '+' : ''}${numberFmt(r.dif)}</td>
+        <td class="right num ${classes(r.dif_pct)}">${r.dif_pct >= 0 ? '+' : ''}${r.dif_pct.toFixed(5)}%</td>
+        <td>${badge(r,Math.abs(r.dif_pct)<=t)}</td>
+        <td>${trend}</td>
+        <td class="muted">${status}</td>
+        <td><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">打开 ↗</a></td>
+      </tr>`;
+    }).join('');
+  }
+  async function poll() {
+    if (pending) return;
+    pending = true;
+    try {
+      const response = await fetch('/api/state', {cache:'no-store',signal:AbortSignal.timeout(7000)});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      latest = await response.json();
+      failed = false;
+      render();
+    } catch(e) {
+      failed = true;
+      $('live-dot').classList.add('error');
+      $('live-dot').classList.remove('online');
+      $('connection').textContent = '监控服务连接中断';
+      $('refresh').textContent = `上次数据可能已过期：${e.message}`;
+    } finally { pending = false; }
+  }
+  document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
+    filter = button.dataset.filter;
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b===button));
+    render();
+  }));
+  ['market','threshold','query','above200','online'].forEach(id => {
+    $(id).addEventListener('input', render);
+    $(id).addEventListener('change', render);
+  });
+  $('now').textContent = fmtTime(Date.now());
+  setInterval(() => { $('now').textContent = fmtTime(Date.now()); }, 1000);
+  poll();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
