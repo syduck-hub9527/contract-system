@@ -113,7 +113,7 @@
   </div>
   <section class="surface">
     <div class="surface-top">
-      <div class="title-row"><h2>合约信号监控</h2><div class="hint">按 DIF 距离零轴由近到远排序 · 自动刷新无需手动操作</div></div>
+      <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
           <button class="tab active" data-filter="near">接近零轴</button>
@@ -211,7 +211,9 @@
     const state = latest;
     const rows = state.rows || [];
     const t = threshold();
-    const filtered = rows.filter(r => matching(r, t));
+    // 按“最近更新”时间由新到旧排序；时间相同时，DIF 离零轴更近的在前
+    const filtered = rows.filter(r => matching(r, t)).sort((a, b) =>
+      (b.updated_at - a.updated_at) || (Math.abs(a.dif_pct) - Math.abs(b.dif_pct)));
     const near = rows.filter(r => Math.abs(r.dif_pct) <= t).length;
     const liveGold = rows.filter(r => r.live_cross === 'golden').length;
     const liveDeath = rows.filter(r => r.live_cross === 'death').length;
