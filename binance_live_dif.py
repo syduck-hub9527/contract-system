@@ -6,12 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -24,12 +23,15 @@ LOG = logging.getLogger("difradar")
 INTERVAL_MS = 5 * 60 * 1000
 CANDLE_LIMIT = 499  # 请求权重 2；给 EMA200 足够长的预热数据
 WS_BATCH = 75        # 每条连接订阅较少币种，降低单条 WS 消息量
+MAX_FILL = 20000     # 长时间无成交的合约最多向前补齐的K线数，超出则跳过
+SYMBOL_REFRESH_SECONDS = 3600  # 定期刷新合约列表，加入新上市、移除已下架
 MARKETS = {
     "UM": {
         "title": "U本位",
         "rest": "https://fapi.binance.com",
         "exchange": "/fapi/v1/exchangeInfo",
         "klines": "/fapi/v1/klines",
+        "time": "/fapi/v1/time",
         "ws": "wss://fstream.binance.com/market/stream",  # 2026-04 后的新地址
     },
     "CM": {
@@ -37,6 +39,7 @@ MARKETS = {
         "rest": "https://dapi.binance.com",
         "exchange": "/dapi/v1/exchangeInfo",
         "klines": "/dapi/v1/klines",
+        "time": "/dapi/v1/time",
         "ws": "wss://dstream.binance.com/stream",
     },
 }
@@ -58,6 +61,11 @@ class Pace:
         wait = target - now
         if wait > 0:
             time.sleep(wait)
+
+    def penalize(self, seconds: float):
+        """遇到 418/429 时让所有线程一起退避，而不是只暂停当前线程。"""
+        with self.lock:
+            self.next_time = max(self.next_time, time.monotonic() + seconds)
 
 
 @dataclass
@@ -105,36 +113,54 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     if len(complete) < 210:
         raise ValueError("已收盘K线不足210根，无法稳定计算 EMA200")
 
-    ema21 = ema50 = ema200 = None
-    previous_ema200 = None
-    previous_dif = None
-    signal = ""
-    signal_at = 0
+    # 币安不会返回没有成交的K线。与图表软件一致，用上一根收盘价向前补齐缺失的
+    # K线（中间缺口 + 末尾已经过去但无成交的K线），保证 last_close_t 始终紧贴
+    # “当前K线开盘时间 - 5分钟”，WS 推送才不会被误判为掉线缺口。
+    series: list[tuple[int, float]] = []
+    filled = 0
     for row in complete:
         close = float(row[4])
         if close <= 0:
             raise ValueError("无效K线价格")
-        if ema21 is None:
-            ema21 = ema50 = ema200 = close
-            continue
+        open_t = int(row[0])
+        while series and series[-1][0] + INTERVAL_MS < open_t:
+            series.append((series[-1][0] + INTERVAL_MS, series[-1][1]))
+            filled += 1
+            if filled > MAX_FILL:
+                raise ValueError("长时间无成交，缺失K线过多")
+        series.append((open_t, close))
+    current_open = now_ms - now_ms % INTERVAL_MS
+    while series[-1][0] + INTERVAL_MS < current_open:
+        series.append((series[-1][0] + INTERVAL_MS, series[-1][1]))
+        filled += 1
+        if filled > MAX_FILL:
+            raise ValueError("长时间无成交，缺失K线过多")
+
+    ema21 = ema50 = ema200 = series[0][1]
+    previous_ema200 = None
+    previous_dif = None
+    signal = ""
+    signal_at = 0
+    for idx, (open_t, close) in enumerate(series[1:], start=1):
         previous_ema200 = ema200
         ema21 = ema_update(ema21, close, 21)
         ema50 = ema_update(ema50, close, 50)
         ema200 = ema_update(ema200, close, 200)
         dif = ema21 - ema50
-        if previous_dif is not None and row is complete[-1]:
+        if previous_dif is not None and idx == len(series) - 1:
             signal = crossed(previous_dif, dif)
             if signal:
-                signal_at = int(row[0]) + INTERVAL_MS
+                signal_at = open_t + INTERVAL_MS
         previous_dif = dif
 
-    assert ema21 is not None and ema50 is not None and ema200 is not None
-    closed_row = complete[-1]
-    closed_t = int(closed_row[0])
+    closed_t, closed_price = series[-1]
     curr_rows = [r for r in rows if int(r[0]) > closed_t]
-    live_row = curr_rows[-1] if curr_rows else closed_row
-    price = float(live_row[4])
-    live_t = int(live_row[0])
+    if curr_rows:
+        price = float(curr_rows[-1][4])
+        live_t = int(curr_rows[-1][0])
+    else:
+        price = closed_price
+        live_t = closed_t
     is_running_candle = live_t > closed_t
     return Pair(
         market=market,
@@ -204,7 +230,27 @@ class Radar:
         self.started_at = int(time.time() * 1000)
         self.pace = Pace(0.10)
         self.resync_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.resync_attempts: dict[tuple[str, str], int] = {}
+        self.time_offset_ms = 0  # 币安服务器时间 - 本机时间，用于判断K线是否收盘
         self.local = threading.local()
+
+    def now_ms(self) -> int:
+        return int(time.time() * 1000) + self.time_offset_ms
+
+    def _sync_time(self):
+        """用币安服务器时间校准本机时钟偏差（取请求往返的中点）。"""
+        for market in self.enabled_markets:
+            cfg = MARKETS[market]
+            try:
+                t0 = time.time()
+                data = self._json(cfg["rest"] + cfg["time"])
+                t1 = time.time()
+                server = int(data["serverTime"])
+                self.time_offset_ms = int(server - (t0 + t1) / 2 * 1000)
+                LOG.info("本机时钟偏差 %+d ms（相对币安服务器）", -self.time_offset_ms)
+                return
+            except Exception as exc:
+                self._error(f"{cfg['title']}服务器时间获取失败: {exc}")
 
     def _error(self, message: str):
         LOG.warning(message)
@@ -223,8 +269,12 @@ class Radar:
             try:
                 resp = session.get(url, params=params, timeout=(5, 15))
                 if resp.status_code in (418, 429):
-                    retry = float(resp.headers.get("Retry-After", min(30, 3 * (attempt + 1))))
-                    time.sleep(max(1.0, min(60.0, retry)))
+                    try:
+                        retry = float(resp.headers.get("Retry-After", ""))
+                    except ValueError:
+                        retry = min(30.0, 3.0 * (attempt + 1))
+                    # 全局退避：所有线程一起暂停，避免其他线程继续请求而延长封禁
+                    self.pace.penalize(max(1.0, min(120.0, retry)))
                     continue
                 resp.raise_for_status()
                 data = resp.json()
@@ -255,7 +305,7 @@ class Radar:
         )
         if not isinstance(rows, list):
             raise RuntimeError(f"{symbol}: K线接口返回非列表数据")
-        return initialize_pair(market, symbol, rows)
+        return initialize_pair(market, symbol, rows, now_ms=self.now_ms())
 
     def start(self):
         for i in range(2):
@@ -263,6 +313,7 @@ class Radar:
         threading.Thread(target=self._bootstrap, daemon=True, name="bootstrap").start()
 
     def _bootstrap(self):
+        self._sync_time()
         jobs = []
         for market in self.enabled_markets:
             try:
@@ -282,6 +333,14 @@ class Radar:
         with self.lock:
             self.phase = "正在载入5分钟K线历史，合约将逐批上线..."
 
+        self._load(jobs)
+        with self.lock:
+            self.phase = "正在实时监测" if self.loaded else "无法获取K线，请检查连接"
+        LOG.info("初始化完毕：%d/%d，跳过 %d", self.loaded, self.total, self.skipped)
+        threading.Thread(target=self._refresh_loop, daemon=True, name="refresh").start()
+
+    def _load(self, jobs: list[tuple[str, str]]):
+        """并发载入历史K线，每攒满一批就建立一条 WebSocket。"""
         batches: dict[str, list[str]] = {m: [] for m in self.enabled_markets}
         with ThreadPoolExecutor(max_workers=7, thread_name_prefix="klines") as executor:
             future_map = {executor.submit(self._prime, market, sym): (market, sym) for market, sym in jobs}
@@ -305,9 +364,45 @@ class Radar:
         for market, symbols in batches.items():
             if symbols:
                 self._start_ws(market, symbols)
+
+    def _refresh_loop(self):
+        """定期刷新合约列表：新上市的加入监控，已下架的移除。"""
+        while True:
+            time.sleep(SYMBOL_REFRESH_SECONDS)
+            try:
+                self._refresh_symbols()
+            except Exception as exc:
+                self._error(f"刷新合约列表失败: {exc}")
+
+    def _refresh_symbols(self):
+        current: dict[str, list[str]] = {}
+        for market in self.enabled_markets:
+            try:
+                current[market] = self._symbols(market)
+            except Exception as exc:
+                self._error(f"{MARKETS[market]['title']}合约列表刷新失败: {exc}")
+        if not current:
+            return
         with self.lock:
-            self.phase = "正在实时监测" if self.loaded else "无法获取K线，请检查连接"
-        LOG.info("初始化完毕：%d/%d，跳过 %d", self.loaded, self.total, self.skipped)
+            known = set(self.states)
+        listed = {(m, s) for m, syms in current.items() for s in syms}
+        gone = [key for key in known if key[0] in current and key not in listed]
+        new_jobs = sorted(listed - known)
+        with self.lock:
+            for key in gone:
+                self.states.pop(key, None)
+                self.symbol_ws.pop(key, None)
+        if gone:
+            LOG.info("移除已下架合约 %d 个", len(gone))
+        if new_jobs:
+            LOG.info("发现新增/待重试合约 %d 个", len(new_jobs))
+            self._load(new_jobs)
+        with self.lock:
+            # 总数以交易所当前列表为准；新上市历史不足的会在下次刷新时重试
+            self.total = len(listed) + sum(
+                1 for key in self.states if key[0] not in current and key not in listed)
+            self.loaded = len(self.states)
+            self.skipped = max(0, self.total - self.loaded)
 
     def _start_ws(self, market: str, symbols: list[str]):
         group = list(symbols)
@@ -398,19 +493,31 @@ class Radar:
     def _resync_worker(self):
         while True:
             market, symbol = self.resync_queue.get()
+            key = (market, symbol)
             try:
+                with self.lock:
+                    if key not in self.states:  # 已下架/已移除，无需同步
+                        self.resync_attempts.pop(key, None)
+                        continue
                 refreshed = self._prime(market, symbol)
                 with self.lock:
-                    previous = self.states.get((market, symbol))
-                    if previous:
+                    if key in self.states:
                         # 旧 socket 一般仍在线，重新计算后等待下一次K线推送
-                        refreshed.ws_connected = bool(self.ws_online.get(self.symbol_ws.get((market, symbol), ""), False))
-                    self.states[(market, symbol)] = refreshed
+                        refreshed.ws_connected = bool(
+                            self.ws_online.get(self.symbol_ws.get(key, ""), False))
+                        self.states[key] = refreshed
+                    self.resync_attempts.pop(key, None)
             except Exception as exc:
                 self._error(f"{market} {symbol} 掉线后同步失败: {exc}")
-                # 暂停后重试，避免使用漏掉的K线继续计算
-                time.sleep(8)
-                self.resync_queue.put((market, symbol))
+                # 指数退避后再重试；用定时器而不是在工作线程里 sleep，
+                # 以免少数出错的合约卡住全部重同步。
+                with self.lock:
+                    attempt = self.resync_attempts.get(key, 0)
+                    self.resync_attempts[key] = attempt + 1
+                delay = min(120.0, 8.0 * (2 ** min(attempt, 4)))
+                timer = threading.Timer(delay, self.resync_queue.put, args=(key,))
+                timer.daemon = True
+                timer.start()
             finally:
                 self.resync_queue.task_done()
 
@@ -470,7 +577,18 @@ class HTTPHandler(BaseHTTPRequestHandler):
     radar: Radar
     html: bytes
 
+    ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+    def _host_allowed(self) -> bool:
+        host = (self.headers.get("Host") or "").strip().lower()
+        name = host.split("]")[0] + "]" if host.startswith("[") else host.split(":")[0]
+        return name in self.ALLOWED_HOSTS
+
     def do_GET(self):
+        # 防 DNS 重绑定：只接受通过本机地址访问的请求
+        if not self._host_allowed():
+            self._send(403, "text/plain", b"Forbidden host")
+            return
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", self.html)

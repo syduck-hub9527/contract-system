@@ -223,9 +223,13 @@
     $('warning').classList.toggle('show', !!warningText);
 
     const dot = $('live-dot');
+    const allOnline = state.ws_expected > 0 && state.ws_online >= state.ws_expected;
     dot.classList.toggle('online', state.ws_online > 0);
     dot.classList.toggle('error', problem || failed);
-    $('connection').textContent = failed ? '本地服务断开' : state.ws_online > 0 ? '行情已连接' : isBoot ? '初始化中...' : '等待实时连接';
+    $('connection').textContent = failed ? '本地服务断开'
+      : allOnline ? '行情已连接'
+      : state.ws_online > 0 ? `部分连接 ${state.ws_online}/${state.ws_expected}`
+      : isBoot ? '初始化中...' : '等待实时连接';
     $('ws-caption').textContent = `${state.ws_online}/${state.ws_expected} 条WS在线`;
 
     $('table').style.display = filtered.length ? '' : 'none';
