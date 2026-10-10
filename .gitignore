@@ -5,3 +5,7 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+research_cache.json
+research_cache.tmp
+.deps/
+

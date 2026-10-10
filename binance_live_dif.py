@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ from urllib.parse import urlparse
 
 import requests
 import websocket
+
+from research import Research, advance_point, candle, indicators, position_size
 
 LOG = logging.getLogger("difradar")
 INTERVAL_MS = 5 * 60 * 1000
@@ -89,6 +92,8 @@ class Pair:
     ws_connected: bool = False
     resync_pending: bool = False
     last_error: str = ""
+    research_history: list = field(default_factory=list)
+    research_point: dict | None = None
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -120,7 +125,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     filled = 0
     for row in complete:
         close = float(row[4])
-        if close <= 0:
+        if not math.isfinite(close) or close <= 0:
             raise ValueError("无效K线价格")
         open_t = int(row[0])
         while series and series[-1][0] + INTERVAL_MS < open_t:
@@ -162,6 +167,12 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         price = closed_price
         live_t = closed_t
     is_running_candle = live_t > closed_t
+    try:
+        research_history = [candle(r) for r in complete[-600:]]
+        research_point = indicators(research_history)[-1]
+    except (ValueError, IndexError, TypeError):
+        # Preserve monitoring for malformed OHLCV; never produce a probability from it.
+        research_history, research_point = [], None
     return Pair(
         market=market,
         symbol=symbol,
@@ -178,7 +189,9 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         live200=ema_update(ema200, price, 200) if is_running_candle else ema200,
         confirmed=signal,
         confirmed_at=signal_at,
-        live_updated_at=int(time.time() * 1000),
+        live_updated_at=now_ms,
+        research_history=research_history,
+        research_point=research_point,
     )
 
 
@@ -192,7 +205,7 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
     if t > pair.last_close_t + INTERVAL_MS:
         return "gap"  # 可能掉线错过收盘，必须重新REST同步
     p = float(k["c"])
-    if p <= 0:
+    if not math.isfinite(p) or p <= 0:
         return "ignored"
 
     l21 = ema_update(pair.ema21, p, 21)
@@ -211,11 +224,17 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.ema21, pair.ema50, pair.ema200 = l21, l50, l200
         pair.closed_dif = l21 - l50
         pair.last_close_t = t
+        try:
+            row = candle([t, k["o"], k["h"], k["l"], k["c"], k["v"]])
+            pair.research_history = (pair.research_history + [row])[-600:]
+            pair.research_point = advance_point(pair.research_history, pair.research_point)
+        except (KeyError, ValueError, TypeError):
+            pair.research_history, pair.research_point = [], None
     return "ok"
 
 
 class Radar:
-    def __init__(self, enabled_markets: tuple[str, ...] = ("UM", "CM")):
+    def __init__(self, enabled_markets: tuple[str, ...] = ("UM", "CM"), research_cache: Path | None = None):
         self.enabled_markets = enabled_markets
         self.lock = threading.RLock()
         self.states: dict[tuple[str, str], Pair] = {}
@@ -233,6 +252,7 @@ class Radar:
         self.resync_attempts: dict[tuple[str, str], int] = {}
         self.time_offset_ms = 0  # 币安服务器时间 - 本机时间，用于判断K线是否收盘
         self.local = threading.local()
+        self.research = Research(self, research_cache)
 
     def now_ms(self) -> int:
         return int(time.time() * 1000) + self.time_offset_ms
@@ -450,7 +470,7 @@ class Radar:
                         state = self.states.get((market, symbol))
                         if state is None or state.resync_pending:
                             return
-                        result = update_pair(state, k)
+                        result = update_pair(state, k, now_ms=self.now_ms())
                         if result == "gap":
                             state.resync_pending = True
                             state.ws_connected = False
@@ -522,7 +542,8 @@ class Radar:
                 self.resync_queue.task_done()
 
     def snapshot(self) -> dict[str, Any]:
-        now = int(time.time() * 1000)
+        now = self.now_ms()
+        research_points = {}
         with self.lock:
             states = list(self.states.values())
             rows = []
@@ -532,12 +553,12 @@ class Radar:
                 dif = state.live21 - state.live50
                 dif_pct = 100.0 * dif / state.price
                 fresh_live = (state.ws_connected and not state.resync_pending
-                              and now - state.live_updated_at <= 90_000)
+                              and 0 <= now - state.live_updated_at <= 90_000)
                 live_cross = (crossed(state.closed_dif, dif)
                               if fresh_live and state.live_t > state.last_close_t else "")
                 confirmed = (
                     state.confirmed
-                    if state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
+                    if fresh_live and state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
                     else ""
                 )
                 rows.append({
@@ -557,10 +578,12 @@ class Radar:
                     "current_candle": state.live_t > state.last_close_t,
                     "ws_connected": state.ws_connected,
                     "resync_pending": state.resync_pending,
+                    "fresh": fresh_live,
                 })
+                research_points[(state.market, state.symbol)] = state.research_point
             rows.sort(key=lambda x: abs(x["dif_pct"]))
             online = sum(1 for connected in self.ws_online.values() if connected)
-            return {
+            snapshot = {
                 "server_time": now,
                 "phase": self.phase,
                 "total": self.total,
@@ -571,6 +594,12 @@ class Radar:
                 "errors": list(reversed(self.errors[-3:])),
                 "rows": rows,
             }
+        # Avoid acquiring the research lock while holding the radar lock.
+        for row in rows:
+            row["research"] = self.research.predict(
+                row["market"], row["symbol"], research_points[(row["market"], row["symbol"])],
+                now, row["fresh"])
+        return snapshot
 
 
 class HTTPHandler(BaseHTTPRequestHandler):
@@ -597,8 +626,51 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self._send(200, "application/json; charset=utf-8", data.encode("utf-8"))
         elif path == "/health":
             self._send(200, "application/json", b'{"ok":true}')
+        elif path == "/dif-api/research":
+            self._send_json(200, self.radar.research.snapshot())
         else:
             self._send(404, "text/plain", b"Not found")
+
+    def _send_json(self, code: int, data: dict):
+        self._send(code, "application/json; charset=utf-8",
+                   json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+
+    def do_POST(self):
+        origin = self.headers.get("Origin")
+        if not self._host_allowed() or (origin and urlparse(origin).netloc.lower() != self.headers.get("Host", "").lower()):
+            self._send_json(403, {"error": "Forbidden origin or host"})
+            return
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            self._send_json(415, {"error": "需要application/json"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 8192:
+                raise ValueError("请求体长度无效")
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError("参数必须为对象")
+            path = urlparse(self.path).path
+            if path == "/dif-api/research/start":
+                started = self.radar.research.start(data)
+                self._send_json(202 if started else 409, self.radar.research.snapshot())
+            elif path == "/dif-api/research/position":
+                symbol = str(data.get("symbol", "")).upper()
+                row = next((r for r in self.radar.snapshot()["rows"]
+                            if r["market"] == "UM" and r["symbol"] == symbol), None)
+                if not row or not row["research"].get("eligible"):
+                    raise ValueError("仅对新鲜且已验证的交叉前候选计算参考仓位")
+                p = row["research"]
+                with self.radar.research.lock:
+                    settings = self.radar.research.settings
+                result = position_size(float(data["equity"]), float(data["risk_pct"]),
+                                       p["reference_price"], p["atr"], settings, p["direction"])
+                result.update(symbol=symbol, reference_price=p["reference_price"], observation=p["observation"])
+                self._send_json(200, result)
+            else:
+                self._send_json(404, {"error": "Not found"})
+        except (ValueError, KeyError, TypeError, OverflowError) as exc:
+            self._send_json(400, {"error": str(exc)[:300]})
 
     def _send(self, code: int, mime: str, body: bytes):
         self.send_response(code)
@@ -624,7 +696,7 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     active = {"all": ("UM", "CM"), "um": ("UM",), "cm": ("CM",)}[args.market]
-    radar = Radar(active)
+    radar = Radar(active, research_cache=Path(__file__).with_name("research_cache.json"))
     HTML = Path(__file__).with_name("dashboard.html").read_bytes()
     handler = type("RadarHandler", (HTTPHandler,), {"radar": radar, "html": HTML})
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
@@ -644,3 +716,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
