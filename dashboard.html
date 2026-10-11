@@ -234,8 +234,8 @@
   };
   // 接近零轴：DIF 在阈值内，且最近10根已收盘K线无金叉/死叉，当前K线也无盘中金叉/死叉
   const isNear = (row, t) => Math.abs(row.dif_pct) <= t && !row.recent_cross && !row.live_cross;
-  // 非接近零轴：不满足接近零轴，且没有盘中金叉/死叉（盘中信号只出现在盘中标签里）
-  const isFar = (row, t) => !isNear(row, t) && !row.live_cross;
+  // 非接近零轴：当前信号列显示“—”的合约，即不接近零轴，且没有盘中或已确认的金叉/死叉
+  const isFar = (row, t) => !isNear(row, t) && !row.live_cross && !row.confirmed_cross;
   function matching(row, t) {
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
