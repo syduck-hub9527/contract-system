@@ -5,3 +5,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+forecast_cache/
+.deps/
+node_modules/

@@ -11,7 +11,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,9 @@ from urllib.parse import urlparse
 import requests
 import websocket
 
-from forecast import fit_table, predict
+from forecast import (Config, IndicatorState, fit_table, predict, kline_row, normalize_row,
+                      record_prediction, resolve_journal)
+from forecast_store import ForecastStore
 
 LOG = logging.getLogger("difradar")
 INTERVAL_MS = 5 * 60 * 1000
@@ -99,6 +101,9 @@ class Pair:
     forecast_contiguous: int = 0
     forecast_model: dict = field(default_factory=dict)
     forecast_error: str = ""
+    indicators: IndicatorState = field(default_factory=IndicatorState)
+    journal: list = field(default_factory=list)
+    journal_signature: str = ""
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -183,6 +188,10 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         contiguous += 1
     if actual[-1][0] != closed_t:
         contiguous = 0
+    indicators = IndicatorState()
+    for row in complete:
+        # Forecast features do not use gap-filled synthetic candles.
+        indicators.append(normalize_row((row[0],row[4],row[5])))
     return Pair(
         market=market,
         symbol=symbol,
@@ -204,7 +213,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         slope50=slope50,
         actual_recent_times=[t for t, _ in actual[-3:]],
         forecast_contiguous=contiguous,
-        forecast_model=fit_table(actual, current_open),
+        indicators=indicators,
     )
 
 
@@ -241,11 +250,19 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.forecast_contiguous = (pair.forecast_contiguous + 1
                                     if pair.actual_recent_times and pair.actual_recent_times[-1] + INTERVAL_MS == t else 1)
         pair.actual_recent_times = (pair.actual_recent_times + [t])[-3:]
+        try:
+            point = pair.indicators.append(normalize_row((t,p,k.get("v"))))
+            resolve_journal(pair.journal,t+INTERVAL_MS,point["dif"])
+        except ValueError:
+            pair.indicators = IndicatorState()
+            for record in pair.journal:
+                if record.get("two") is None:
+                    record["invalid"] = True
     return "ok"
 
 
 class Radar:
-    def __init__(self, enabled_markets: tuple[str, ...] = ("UM", "CM")):
+    def __init__(self, enabled_markets: tuple[str, ...] = ("UM", "CM"), cache_dir=None):
         self.enabled_markets = enabled_markets
         self.lock = threading.RLock()
         self.states: dict[tuple[str, str], Pair] = {}
@@ -266,6 +283,11 @@ class Radar:
         self.forecast_queue: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=8)
         self.forecast_pending: set[tuple[str, str]] = set()
         self.forecast_attempts: dict[tuple[str, str], int] = {}
+        self.store = ForecastStore(cache_dir)
+        self.forecast_config = self.store.load_config()
+        self.sources: dict[tuple[str,str], dict] = {}
+        self.journal_queue = queue.Queue(maxsize=128)
+        self.journal_pending = set()
 
     def now_ms(self) -> int:
         return int(time.time() * 1000) + self.time_offset_ms
@@ -338,9 +360,26 @@ class Radar:
         )
         if not isinstance(rows, list):
             raise RuntimeError(f"{symbol}: K线接口返回非列表数据")
-        return initialize_pair(market, symbol, rows, now_ms=self.now_ms())
+        pair = initialize_pair(market, symbol, rows, now_ms=self.now_ms())
+        with self.lock:
+            config = self.forecast_config
+        cached = self.store.load((market,symbol),config)
+        if cached:
+            merged = {r[0]:r for r in cached["history"] if r[0]<=pair.last_close_t}
+            merged.update({r[0]:r for r in pair.indicators.history})
+            state = IndicatorState()
+            for row in sorted(merged.values()):
+                state.append(row)
+            pair.indicators = state
+            pair.forecast_model = cached["model"]
+            with self.lock:
+                if config == self.forecast_config:
+                    self._remember_source((market,symbol),cached)
+        pair.journal = self.store.load_journal((market,symbol))
+        return pair
 
     def start(self):
+        threading.Thread(target=self._journal_worker, daemon=True, name="forecast-journal").start()
         threading.Thread(target=self._forecast_worker, daemon=True, name="forecast-history").start()
         for i in range(2):
             threading.Thread(target=self._resync_worker, daemon=True, name=f"resync-{i}").start()
@@ -540,6 +579,10 @@ class Radar:
                         if old.forecast_model.get("bars", 0) > refreshed.forecast_model.get("bars", 0):
                             refreshed.forecast_model = old.forecast_model
                         refreshed.forecast_error = old.forecast_error
+                        refreshed.journal = old.journal
+                        for record in refreshed.journal:
+                            if record.get("two") is None:
+                                record["invalid"] = True
                         # 旧 socket 一般仍在线，重新计算后等待下一次K线推送
                         refreshed.ws_connected = bool(
                             self.ws_online.get(self.symbol_ws.get(key, ""), False))
@@ -561,7 +604,7 @@ class Radar:
 
     def _schedule_forecast(self, key: tuple[str, str], now: int):
         # Called under self.lock. One worker, bounded queue and hourly retry cap.
-        if key in self.forecast_pending or now - self.forecast_attempts.get(key, 0) < 3600_000:
+        if key in self.forecast_pending or now - self.forecast_attempts.get(key, 0) < self.forecast_config.refresh_minutes*60_000:
             return
         try:
             self.forecast_queue.put_nowait(key)
@@ -570,57 +613,146 @@ class Radar:
         self.forecast_pending.add(key)
         self.forecast_attempts[key] = now
 
-    def _forecast_history(self, market: str, symbol: str, cutoff: int) -> list[tuple[int, float]]:
-        found = {}
-        end = cutoff - 1
+    def _remember_source(self, key, source):
+        self.sources.pop(key,None)
+        self.sources[key] = source
+        while len(self.sources)>64:
+            self.sources.pop(next(iter(self.sources)))
+
+    def _queue_journal(self, key):
+        if key in self.journal_pending:
+            return
+        try:
+            self.journal_queue.put_nowait(key)
+            self.journal_pending.add(key)
+        except queue.Full:
+            pass
+
+    def _journal_worker(self):
+        while True:
+            key = self.journal_queue.get()
+            try:
+                with self.lock:
+                    records = [dict(r) for r in self.states[key].journal] if key in self.states else []
+                    self.journal_pending.discard(key)
+                self.store.save_journal(key,records)
+            except Exception as exc:
+                with self.lock:
+                    if key in self.states:
+                        self.states[key].journal_signature = ""
+                self._error(f"预测记录缓存失败: {exc}")
+            finally:
+                self.journal_queue.task_done()
+
+    def _forecast_history(self, market, symbol, cutoff, cached=None):
+        found = {int(r[0]):normalize_row(r) for r in (cached or []) if int(r[0])+INTERVAL_MS<=cutoff}
+        last_cached = max(found,default=-1)
+        # Incremental backfill joins stored history; first load paginates up to 10000.
+        end = cutoff-1
+        fetched = 0
         cfg = MARKETS[market]
-        while len(found) < FORECAST_HISTORY:
-            limit = min(1000, FORECAST_HISTORY - len(found))
-            rows = self._json(cfg["rest"] + cfg["klines"],
-                              {"symbol": symbol, "interval": "5m", "limit": limit, "endTime": end})
-            if not isinstance(rows, list):
+        while fetched<FORECAST_HISTORY and (len(found)<FORECAST_HISTORY or last_cached<cutoff-INTERVAL_MS):
+            limit = 1000 if cached else min(1000,FORECAST_HISTORY-len(found))
+            rows = self._json(cfg["rest"]+cfg["klines"],
+                              {"symbol":symbol,"interval":"5m","limit":limit,"endTime":end})
+            if not isinstance(rows,list):
                 raise ValueError("概率历史返回格式无效")
             if not rows:
                 break
             oldest = min(int(r[0]) for r in rows)
-            if oldest > end:
+            if oldest>end:
                 raise ValueError("概率历史分页未推进")
             for row in rows:
-                if int(row[6]) < cutoff:
-                    found[int(row[0])] = float(row[4])
-            end = oldest - 1
-            if len(rows) < limit:
+                if int(row[6])<cutoff and int(row[0])+INTERVAL_MS<=cutoff:
+                    parsed = kline_row(row)
+                    found[parsed[0]] = parsed
+            end = oldest-1
+            fetched += len(rows)
+            if (cached and oldest<=last_cached) or len(rows)<limit or (not cached and len(found)>=FORECAST_HISTORY):
                 break
-            time.sleep(.35)  # 降低大历史请求的权重消耗，与全局限流共同生效
-        return sorted(found.items())[-FORECAST_HISTORY:]
+            time.sleep(.35)
+        return [found[t] for t in sorted(found)[-FORECAST_HISTORY:]]
+
+    def _refresh_forecast(self, key):
+        with self.lock:
+            if key not in self.states:
+                return
+            config = self.forecast_config
+            source = self.sources.get(key,{})
+            cached_config = Config.parse(self.states[key].forecast_model.get("config",{}))
+            cached = list(source.get("history",[]))
+            peers = [dict(s,contract=":".join(k)) for k,v in self.sources.items()
+                     if k!=key and k[0]==key[0] and v["model"].get("fingerprint")==config.fingerprint
+                     and 0<=self.now_ms()-v["model"].get("cutoff",0)<=config.max_age_hours*3600_000
+                     for s in v["model"].get("samples",[])] if config.pooling else []
+        if not cached:
+            saved = self.store.load(key,cached_config)
+            cached = saved["history"] if saved else []
+        cutoff = self.now_ms()//INTERVAL_MS*INTERVAL_MS
+        rows = self._forecast_history(*key,cutoff,cached)
+        if len(rows)<213:
+            raise ValueError("完整历史不足")
+        model = fit_table(rows,cutoff,config,peers)
+        indicators = IndicatorState()
+        for row in rows:
+            indicators.append(row)
+        with self.lock:
+            state = self.states.get(key)
+            if not state or config!=self.forecast_config:
+                self.forecast_attempts.pop(key,None)
+                return
+            # WS can close candles while REST/train is running. Preserve newer closes.
+            tail = [r for r in state.indicators.history if r[0]>rows[-1][0]]
+            for row in tail:
+                indicators.append(row)
+            # Re-basing EMAs can change tiny DIF signs: discard unresolved old-base labels.
+            for record in state.journal:
+                if record.get("two") is None:
+                    record["invalid"] = True
+            state.indicators = indicators
+            state.forecast_model = model
+            state.forecast_error = ""
+            self._remember_source(key,{"history":rows,"model":model})
+        self.store.save(key,model,rows)
 
     def _forecast_worker(self):
         while True:
             key = self.forecast_queue.get()
             try:
-                with self.lock:
-                    if key not in self.states:
-                        continue
-                cutoff = self.now_ms() // INTERVAL_MS * INTERVAL_MS
-                rows = self._forecast_history(*key, cutoff)
-                if len(rows) < 213:
-                    raise ValueError("完整历史不足")
-                model = fit_table(rows, cutoff)
-                with self.lock:
-                    state = self.states.get(key)
-                    if state:
-                        state.forecast_model = model
-                        state.forecast_error = ""
+                self._refresh_forecast(key)
             except Exception as exc:
                 with self.lock:
-                    state = self.states.get(key)
-                    if state:
-                        state.forecast_error = str(exc)[:180]
+                    if key in self.states:
+                        self.states[key].forecast_error = str(exc)[:180]
                 self._error(f"{key[0]} {key[1]} 概率样本更新失败: {exc}")
             finally:
                 with self.lock:
                     self.forecast_pending.discard(key)
                 self.forecast_queue.task_done()
+
+    def configure_forecast(self, data):
+        with self.lock:
+            config = Config.parse(data,self.forecast_config)
+            # Serialize config edits and commit disk state before publishing the new config.
+            self.store.save_config(config)
+            self.forecast_config = config
+            self.forecast_attempts.clear()
+            for key,state in self.states.items():
+                if state.forecast_model:
+                    self._schedule_forecast(key,self.now_ms())
+        return asdict(config)
+
+    def forecast_info(self):
+        with self.lock:
+            return {"config":asdict(self.forecast_config),"fingerprint":self.forecast_config.fingerprint,
+                    "models":[{"market":s.market,"symbol":s.symbol,"cutoff":s.forecast_model.get("cutoff"),
+                               "bars":s.forecast_model.get("bars"),"available":s.forecast_model.get("available",False),
+                               "sample_count":s.forecast_model.get("sample_count"),
+                               "current_config":s.forecast_model.get("fingerprint")==self.forecast_config.fingerprint,
+                               "validation":s.forecast_model.get("validation"),
+                               "walk_forward":s.forecast_model.get("walk_forward"),
+                               "comparison":s.forecast_model.get("comparison")}
+                              for s in self.states.values() if s.forecast_model]}
 
     def snapshot(self) -> dict[str, Any]:
         now = self.now_ms()
@@ -641,13 +773,23 @@ class Radar:
                     if fresh_live and state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
                     else ""
                 )
+                point = state.indicators.latest
                 forecast = predict(state.closed_dif, state.slope21, state.slope50,
                                    state.forecast_model, state.last_close_t + INTERVAL_MS,
-                                   now, fresh_live, state.forecast_contiguous > 210)
+                                   now, fresh_live, bool(point and point["ready"] and point["t"]==state.last_close_t),
+                                   point=point,config=self.forecast_config,journal=state.journal)
                 key = (state.market, state.symbol)
-                if forecast["direction"] and self.loaded + self.skipped >= self.total:
+                record_prediction(state.journal,forecast,self.forecast_config)
+                signature = repr(state.journal)
+                if state.journal and signature!=state.journal_signature:
+                    self._queue_journal(key)
+                    if key in self.journal_pending:
+                        state.journal_signature = signature
+                mtf_warmup = self.forecast_config.mtf!="off" and forecast.get("reason","").startswith("已收盘高周期")
+                if (forecast["direction"] or state.forecast_model or mtf_warmup) and self.loaded + self.skipped >= self.total:
                     if (state.forecast_model.get("bars", 0) < FORECAST_HISTORY or
-                            now - state.forecast_model.get("cutoff", 0) > 24 * 3600_000):
+                            now - state.forecast_model.get("cutoff", 0) >= self.forecast_config.refresh_minutes*60_000 or
+                            state.forecast_model.get("fingerprint") != self.forecast_config.fingerprint):
                         self._schedule_forecast(key, now)
                 forecast.update(pending=key in self.forecast_pending,
                                 history_bars=state.forecast_model.get("bars", 0),
@@ -710,10 +852,32 @@ class HTTPHandler(BaseHTTPRequestHandler):
         elif path in ("/api/state", "/dif-api/state"):  # /dif-api/ 为反向代理使用的前缀
             data = json.dumps(self.radar.snapshot(), ensure_ascii=False, separators=(",", ":"))
             self._send(200, "application/json; charset=utf-8", data.encode("utf-8"))
+        elif path == "/dif-api/forecast/info":
+            self._send(200,"application/json; charset=utf-8",json.dumps(self.radar.forecast_info(),ensure_ascii=False,allow_nan=False).encode())
         elif path == "/health":
             self._send(200, "application/json", b'{"ok":true}')
         else:
             self._send(404, "text/plain", b"Not found")
+
+    def do_POST(self):
+        origin = self.headers.get("Origin")
+        if not self._host_allowed() or (origin and urlparse(origin).netloc != self.headers.get("Host")):
+            self._send(403,"text/plain",b"Forbidden origin/host")
+            return
+        if urlparse(self.path).path != "/dif-api/forecast/config":
+            self._send(404,"text/plain",b"Not found")
+            return
+        try:
+            length = int(self.headers.get("Content-Length","0"))
+            if not 0<length<=8192 or self.headers.get("Content-Type","").split(";")[0]!="application/json":
+                raise ValueError("需要有限长度的JSON请求")
+            data = json.loads(self.rfile.read(length))
+            result = self.radar.configure_forecast(data)
+            self._send(200,"application/json; charset=utf-8",json.dumps({"config":result},ensure_ascii=False).encode())
+        except (ValueError,TypeError,OverflowError) as exc:
+            self._send(400,"application/json; charset=utf-8",json.dumps({"error":str(exc)},ensure_ascii=False).encode())
+        except OSError:
+            self._send(500,"application/json",b'{"error":"Config cache write failed"}')
 
     def _send(self, code: int, mime: str, body: bytes):
         self.send_response(code)
@@ -739,7 +903,7 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     active = {"all": ("UM", "CM"), "um": ("UM",), "cm": ("CM",)}[args.market]
-    radar = Radar(active)
+    radar = Radar(active,Path(__file__).with_name("forecast_cache"))
     HTML = Path(__file__).with_name("dashboard.html").read_bytes()
     handler = type("RadarHandler", (HTTPHandler,), {"radar": radar, "html": HTML})
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)

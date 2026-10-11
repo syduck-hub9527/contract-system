@@ -87,6 +87,13 @@
     footer b{color:#bfcedf}
     @media(max-width:1050px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{margin-left:0}.page{padding:22px 16px}}
     @media(max-width:620px){header{flex-direction:column}.livebar{width:100%;justify-content:space-between}.cards{gap:8px}.card{padding:14px}.card-value{font-size:27px}.surface-top{padding:16px 12px}.tabs{width:100%}.tab{flex-grow:1;padding:8px 7px}.page{padding:17px 10px}h1{font-size:22px}.filters{gap:12px}}
+  .settings {padding:18px;margin-bottom:18px;border:1px solid #334155;border-radius:12px;background:var(--panel)}
+    .settings summary {cursor:pointer;font-weight:600;margin-bottom:12px}
+    .settings form {display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+    .settings input[type=number] {width:80px}
+    .settings select,.settings input {background:#111c2c;color:#e4edf7;border:1px solid #40516a;border-radius:5px;padding:6px}
+    .settings button {padding:8px 14px;border-radius:6px;cursor:pointer}
+    .settings pre {white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:440px;overflow:auto}
   </style>
 </head>
 <body>
@@ -111,6 +118,11 @@
     <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
     <div class="card"><div class="card-name">已确认金叉 / 死叉 <span class="symbol">✓</span></div><div class="card-value" id="m-confirmed"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">最近5分钟的收盘信号</div></div>
   </div>
+<details class="settings"><summary>预测设置 · 调整后自动重新验证</summary><form id="forecast-settings"><label>EMA200趋势过滤 <input id="cfg-trend_filter" type="checkbox"/></label><label>同市场分层先验 <input id="cfg-pooling" type="checkbox"/></label><label>成交量过滤 <input id="cfg-volume_filter" type="checkbox"/></label><label>最小|DIF|% <input id="cfg-min_dif_pct" type="number" step=".0001" required/></label><label>最大|DIF|% <input id="cfg-max_dif_pct" type="number" step=".001" required/></label><label>普通eta上限 <input id="cfg-eta_limit" type="number" step=".1" required/></label><label>高波动eta上限 <input id="cfg-high_vol_eta" type="number" step=".1" required/></label><label>高波动率比门槛 <input id="cfg-high_vol_ratio" type="number" step=".1" required/></label><label>样本半衰期/天 <input id="cfg-half_life_days" type="number" step="1" required/></label><label>刷新/分钟 <input id="cfg-refresh_minutes" type="number" step="1" required/></label><label>最大模型年龄/小时 <input id="cfg-max_age_hours" type="number" step="1" required/></label><label>先验强度 <input id="cfg-prior_strength" type="number" step="1" required/></label><label>最小相对成交量 <input id="cfg-min_relative_volume" type="number" step=".1" required/></label><label>斜率权重（最新→更早） <input id="cfg-slope_weights" value="0.5,0.3,0.2" required aria-label="三个斜率权重"/></label>
+<label>模型 <select id="cfg-model_kind"><option value="hybrid">频率+逻辑回归</option><option value="frequency">分层频率</option><option value="logistic">校准逻辑回归</option></select></label>
+<label>高周期确认 <select id="cfg-mtf"><option value="off">关闭</option><option value="15m">15分钟</option><option value="1h">1小时</option><option value="both">15分钟+1小时</option></select></label>
+<button id="save-config" type="submit" disabled>保存并重新验证</button><span id="config-message" role="status">正在读取配置</span></form></details>
+<details class="settings"><summary>滚动验证报告 · 历史表现</summary><label>合约 <select id="report-symbol"><option value="">等待模型</option></select></label><pre id="report-content">候选出现后自动下载历史并生成报告。交叉预测表现不代表交易收益。</pre></details>
   <section class="surface">
     <div class="surface-top">
       <div class="title-row"><h2>合约信号监控</h2><div class="hint" id="sort-hint">预测列表优先按交叉概率、预计时间排序 · 自动刷新</div></div>
@@ -147,8 +159,8 @@
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
     </div>
-    <div class="bottombar"><div><b>提前预测</b> 基于上一根已收盘EMA斜率，窗口从观察收盘时开始，包含当前进行中K线；斜率改变时预测可失效。</div><div>概率是收盘交叉的历史频率估计，<b>不是盈利概率</b>；悬停概率查看样本与验证。</div></div>
-    <div class="bottombar"><div>候选自动补充最多10000根历史；相似条件训练≥30例、后段验证≥10例且偏差≤15个百分点才显示概率。</div><div id="forecast-status">等待预测样本</div></div>
+    <div class="bottombar"><div><b>提前预测</b> 基于最近三根已收盘EMA加权斜率，窗口从观察收盘时开始，包含当前进行中K线；斜率改变时预测可失效。</div><div>概率是收盘交叉的历史频率估计，<b>不是盈利概率</b>；悬停概率查看样本与验证。</div></div>
+    <div class="bottombar"><div>候选自动补充最多10000根历史；本币有效样本≥30例，或满足分层先验；后段验证≥10例并通过校准与Brier检查才显示概率。</div><div id="forecast-status">等待预测样本</div></div>
   </section>
   <footer>
     <span><b>只读行情工具</b> · 不需要API Key · 不会下单 · 非投资建议</span>
@@ -248,7 +260,7 @@
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
     $('count').innerHTML = `符合筛选 <b>${filtered.length}</b> 个 &nbsp;·&nbsp; ${escape(state.phase)}`;
     $('refresh').textContent = `面板刷新 ${fmtTime(state.server_time)} · WS ${state.ws_online}/${state.ws_expected}`;
-    $('forecast-status').textContent = state.forecast_pending ? `正在后台补充 ${state.forecast_pending} 个候选的概率样本` : '样本自动更新 · 概率模型超过24小时重新加载';
+    $('forecast-status').textContent = state.forecast_pending ? `正在后台补充 ${state.forecast_pending} 个候选的概率样本` : '按设置后台增量更新 · 超过最大年龄暂停概率';
 
     const warnings = state.errors || [];
     const problem = state.total === 0 && warnings.length;
@@ -285,9 +297,9 @@
       if (f?.direction) {
         const direction = f.direction === 'golden' ? '金叉' : '死叉';
         const pct = p => Number.isFinite(p) ? (100*p).toFixed(1)+'%' : '—';
-        const statusText = f.error ? '样本下载失败' : f.pending && f.one == null ? '样本加载中' : f.one == null ? '样本不足/验证未通过' : `训练${f.train_n} / 验证${f.validation_n}例`;
-        const detail = `${f.reason}；EMA21斜率=${f.slope21}，EMA50斜率=${f.slope50}；观察收盘 ${fmtTime(f.observation)}；历史${f.history_bars}根；训练${f.train_n}例，验证${f.validation_n}例${f.interval_two ? '；2根内训练比例描述性95%区间 '+pct(f.interval_two[0])+'—'+pct(f.interval_two[1]) : ''}${f.error ? '；'+f.error : ''}`;
-        forecastCell = `<div title="${escape(detail)}"><span class="${f.direction==='golden'?'pos':'neg'}">${direction} · 1根 ${pct(f.one)} / 2根 ${pct(f.two)}</span><br><span class="muted">斜率推算约${f.eta.toFixed(2)}根 · ${escape(statusText)}</span></div>`;
+        const statusText = f.error ? '样本更新失败' : f.pending && f.one == null ? '后台验证中' : f.one == null ? f.reason : `可靠度${f.reliability} · 训练${f.train_n}/验证${f.validation_n}例`;
+        const detail = `${f.reason}；${f.method||'无可用模型'}；加权EMA21斜率=${f.slope21}，EMA50斜率=${f.slope50}；观察收盘 ${fmtTime(f.observation)}；历史${f.history_bars}根；有效训练${(f.effective_n||0).toFixed(1)}例，先验${f.prior_n||0}例/${f.prior_contracts||0}币；验证1/2根命中率 ${pct(f.validation_one)}/${pct(f.validation_two)}；最近${f.recent_n||0}/20次同类预测 ${pct(f.recent_one)}/${pct(f.recent_two)}；模型年龄${(f.model_age_hours||0).toFixed(1)}小时；波动状态${f.regime||'未知'}${f.interval_two ? '；验证命中率日块重采样95%描述区间 '+pct(f.interval_two[0])+'—'+pct(f.interval_two[1]) : ''}；特征贡献 ${(f.contributions||[]).map(x=>x[0]+': '+x[1].toFixed(3)).join('，')}${f.error ? '；'+f.error : ''}`;
+        forecastCell = `<div title="${escape(detail)}"><span class="${f.direction==='golden'?'pos':'neg'}">${direction} · 1根 ${pct(f.one)} / 2根 ${pct(f.two)}</span><br><span class="muted">约${f.eta.toFixed(2)}根 · ${escape(statusText)}</span><br><span class="muted">验证 ${pct(f.validation_one)}/${pct(f.validation_two)} · 最近20次 ${pct(f.recent_one)}/${pct(f.recent_two)}</span></div>`;
       }
       return `<tr class="${stale ? 'stale' : ''}">
         <td class="name">${escape(r.symbol)}</td>
@@ -303,6 +315,57 @@
       </tr>`;
     }).join('');
   }
+  let reportInfo = null, configLoaded = false, reportStamp = '';
+  const configFields = ['trend_filter', 'pooling', 'volume_filter', 'min_dif_pct', 'max_dif_pct', 'eta_limit', 'high_vol_eta', 'high_vol_ratio', 'half_life_days', 'refresh_minutes', 'max_age_hours', 'prior_strength', 'min_relative_volume', 'slope_weights', 'model_kind', 'mtf'];
+  function reportRender() {
+    const model = reportInfo?.models.find(m => m.market+':'+m.symbol === $('report-symbol').value);
+    if (!model) return;
+    const rate = v => Number.isFinite(v) ? (100*v).toFixed(1)+'%' : '—';
+    const describe = m => !m ? '暂无统计' : `观察${m.observations}次 / 信号${m.signals}次 / 每千次观察${(m.density_per_1000_observations||0).toFixed(1)}次\n1根/2根精准率 ${rate(m.one.precision)} / ${rate(m.two.precision)}；误报率 ${rate(m.one.false_alarm_rate)} / ${rate(m.two.false_alarm_rate)}；假阳性率 ${rate(m.one.false_positive_rate)} / ${rate(m.two.false_positive_rate)}\nBrier ${m.one.brier?.toFixed(4)||'—'} / ${m.two.brier?.toFixed(4)||'—'}（越低越好）；固定概率基线 ${m.one.baseline_brier?.toFixed(4)||'—'} / ${m.two.baseline_brier?.toFixed(4)||'—'}；提前1/2根 ${m.lead_time['1']} / ${m.lead_time['2']}`;
+    const lines = [`${model.market} ${model.symbol} · ${model.current_config?'当前配置':'旧配置，等待更新'} · 历史${model.bars}根 · 候选${model.sample_count}例`, `样本截止 ${new Date(model.cutoff).toLocaleString()}`, '这是交叉事件评估，不包含手续费、止损或交易收益。', '密度分母为固定不重叠的三根观察网格；概率信号阈值为2根概率≥50%。', '滚动报告统计未经最终验证门槛筛除的原始模型预测；实际展示另需后段验证通过。', '\n后段独立验证：', describe(model.validation), '\n滚动聚合：', describe(model.walk_forward?.aggregate)];
+    for (const [i,fold] of (model.walk_forward?.folds||[]).entries()) lines.push(`\n第${i+1}折 · 训练截至 ${new Date(fold.train_end).toLocaleString()} → 验证截至 ${new Date(fold.validation_end).toLocaleString()}`,describe(fold.probabilities));
+    lines.push('\n旧单根斜率规则（全历史几何候选）：',describe(model.comparison?.legacy_geometry),'\n新规则（全历史几何候选）：',describe(model.comparison?.new_geometry),'全历史规则对照为描述统计；不能作为样本外提升证明。');
+    $('report-content').textContent = lines.join('\n');
+  }
+  async function pollInfo() {
+    try {
+      const response = await fetch('/dif-api/forecast/info',{cache:'no-store',signal:AbortSignal.timeout(7000)});
+      if (!response.ok) throw new Error('读取预测设置失败');
+      reportInfo = await response.json();
+      if (!configLoaded) {
+        for (const field of configFields) {
+          const el = $('cfg-'+field), value = reportInfo.config[field];
+          if (el.type==='checkbox') el.checked=value;
+          else el.value=Array.isArray(value)?value.join(','):value;
+        }
+        configLoaded=true; $('save-config').disabled=false; $('config-message').textContent='配置已读取';
+      }
+      const stamp = JSON.stringify(reportInfo.models.map(m=>[m.market,m.symbol,m.cutoff,m.current_config]));
+      if (stamp!==reportStamp) {
+        const chosen = $('report-symbol').value;
+        $('report-symbol').innerHTML=reportInfo.models.map(m=>`<option value="${escape(m.market+':'+m.symbol)}">${escape(m.market+' '+m.symbol)}</option>`).join('') || '<option value="">等待候选模型</option>';
+        if (reportInfo.models.some(m=>m.market+':'+m.symbol===chosen)) $('report-symbol').value=chosen;
+        reportStamp=stamp; reportRender();
+      }
+    } catch(e) { if (!configLoaded) $('config-message').textContent=e.message; }
+  }
+  $('report-symbol').addEventListener('change',reportRender);
+  $('forecast-settings').addEventListener('submit',async e=>{
+    e.preventDefault(); const data={};
+    for (const field of configFields) {
+      const el=$('cfg-'+field);
+      data[field]=el.type==='checkbox'?el.checked:field==='slope_weights'?el.value.split(',').map(Number):el.type==='number'?Number(el.value):el.value;
+    }
+    $('save-config').disabled=true;
+    try {
+      const response=await fetch('/dif-api/forecast/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(7000)});
+      const result=await response.json();
+      if (!response.ok) throw new Error(result.error||'保存失败');
+      $('config-message').textContent='已保存，后台重新验证中';
+      await poll(); await pollInfo();
+    } catch(e) { $('config-message').textContent=e.message; }
+    finally { $('save-config').disabled=false; }
+  });
   async function poll() {
     if (pending) return;
     pending = true;
@@ -336,8 +399,9 @@
   });
   $('now').textContent = fmtTime(Date.now());
   setInterval(() => { $('now').textContent = fmtTime(Date.now()); }, 1000);
-  poll();
+  poll(); pollInfo();
   setInterval(poll, 2000);
+  setInterval(pollInfo, 10000);
 })();
 </script>
 </body>
