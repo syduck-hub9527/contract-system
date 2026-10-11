@@ -228,7 +228,7 @@
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
     if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
-    if (filter === 'near') return Math.abs(row.dif_pct) <= t;
+    if (filter === 'near') return Math.abs(row.dif_pct) <= t && !row.recent_cross;
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
     return true;

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .constants import INTERVAL_MS, MAX_FILL
+
+RECENT_DIF_COUNT = 11  # 11 个已收盘 DIF 值 = 最近 10 根K线的 10 段变化
 
 
 @dataclass
@@ -30,6 +32,7 @@ class Pair:
     ws_connected: bool = False
     resync_pending: bool = False
     last_error: str = ""
+    recent_dif: list[float] = field(default_factory=list, repr=False)
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -43,6 +46,11 @@ def crossed(before: float, after: float) -> str:
     if before >= 0.0 > after:
         return "death"
     return ""
+
+
+def had_cross(difs: list[float]) -> bool:
+    """相邻已收盘 DIF 之间是否出现过金叉或死叉（与确认信号判断规则相同）。"""
+    return any(crossed(a, b) for a, b in zip(difs, difs[1:]))
 
 
 def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None = None) -> Pair:
@@ -85,6 +93,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     ema21 = ema50 = ema200 = series[0][1]
     previous_ema200 = None
     previous_dif = None
+    difs: list[float] = []
     signal = ""
     signal_at = 0
     for idx, (open_t, close) in enumerate(series[1:], start=1):
@@ -93,6 +102,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         ema50 = ema_update(ema50, close, 50)
         ema200 = ema_update(ema200, close, 200)
         dif = ema21 - ema50
+        difs.append(dif)
         if previous_dif is not None and idx == len(series) - 1:
             signal = crossed(previous_dif, dif)
             if signal:
@@ -127,6 +137,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         confirmed=signal,
         confirmed_at=signal_at,
         live_updated_at=now_ms,
+        recent_dif=difs[-RECENT_DIF_COUNT:],
     )
 
 
@@ -158,5 +169,6 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.previous_ema200 = pair.ema200
         pair.ema21, pair.ema50, pair.ema200 = l21, l50, l200
         pair.closed_dif = l21 - l50
+        pair.recent_dif = (pair.recent_dif + [pair.closed_dif])[-RECENT_DIF_COUNT:]
         pair.last_close_t = t
     return "ok"
