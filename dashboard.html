@@ -253,7 +253,7 @@
     // 按“最近更新”时间由新到旧排序；时间相同时，DIF 离零轴更近的在前
     const filtered = rows.filter(r => matching(r, t)).sort((a, b) =>
       (b.updated_at - a.updated_at) || (Math.abs(a.dif_pct) - Math.abs(b.dif_pct)));
-    const near = rows.filter(r => Math.abs(r.dif_pct) <= t).length;
+    const near = rows.filter(r => isNear(r, t)).length;
     const liveGold = rows.filter(r => r.live_cross === 'golden').length;
     const liveDeath = rows.filter(r => r.live_cross === 'death').length;
     const confGold = rows.filter(r => r.confirmed_cross === 'golden').length;
@@ -306,7 +306,7 @@
         <td class="right num">${numberFmt(r.price)}</td>
         <td class="right num">${volumeCell(r)}</td>
         <td class="right num">${fundingCell(r)}</td>
-        <td>${badge(r,Math.abs(r.dif_pct)<=t)}</td>
+        <td>${badge(r,isNear(r,t))}</td>
         <td>${trend}</td>
         <td class="muted">${status}</td>
         <td><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">打开 ↗</a></td>
@@ -346,8 +346,10 @@
     if (saved !== null && Number.isFinite(parseFloat(saved))) $('threshold').value = saved;
   } catch (e) {}
   $('threshold').addEventListener('input', () => {
-    try { localStorage.setItem(THRESHOLD_KEY, $('threshold').value); } catch (e) {}
+    try { localStorage.setItem(THRESHOLD_KEY, String(threshold())); } catch (e) {}
   });
+  // 输入超出范围（如 3）时，失去焦点后夹紧到实际生效的值，避免显示与计算不一致
+  $('threshold').addEventListener('change', () => { $('threshold').value = threshold().toFixed(3); });
   $('threshold-reset').addEventListener('click', () => {
     $('threshold').value = '0.050';
     try { localStorage.setItem(THRESHOLD_KEY, '0.050'); } catch (e) {}

@@ -58,6 +58,15 @@ const tick=()=>new Promise(r=>setImmediate(r));
  btc.volume=NaN;await poll();assert.equal(cell('BTCUSDT').textContent,'—');
  btc.volume=12;btc.volume_unit='<img src=x onerror=bad>';btc.quote_asset='" onmouseover="bad';await poll();
  assert.equal(d.querySelectorAll('#tbody img').length,0);assert.equal(cell('BTCUSDT').querySelectorAll('[onmouseover]').length,0);
+ // 近期有交叉的合约：不在接近零轴，徽章也不能显示接近零轴，统计卡片同样不计入
+ state.rows[2].recent_cross=true;await callbacks.find(x=>x[1]===2000)[0]();
+ assert.equal(d.querySelector('#m-near').textContent,'1');
+ click('far');assert.doesNotMatch([...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent==='ETHUSD_PERP').textContent,/接近零轴/);
+ state.rows[2].recent_cross=false;await callbacks.find(x=>x[1]===2000)[0]();
+ // 超出范围的阈值：显示值与生效值一致
+ const th0=d.querySelector('#threshold');th0.value='3';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));
+ assert.equal(th0.value,'1.000');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'1');
+ d.querySelector('#threshold-reset').click();assert.equal(th0.value,'0.050');
  const th=d.querySelector('#threshold');th.value='0.036';th.dispatchEvent(new dom.window.Event('input'));
  assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'0.036');
  d.querySelector('#threshold-reset').click();assert.equal(d.querySelector('#threshold').value,'0.050');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'0.050');
