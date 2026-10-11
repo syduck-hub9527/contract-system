@@ -1,0 +1,4 @@
+include binance_live_dif.py dashboard.html requirements.txt .env.example Dockerfile compose.yaml
+recursive-include docs *.md
+recursive-include deploy *.service *.example
+recursive-include tests *.py *.cjs *.json

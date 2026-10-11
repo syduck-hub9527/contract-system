@@ -61,3 +61,127 @@ python binance_live_dif.py --port 8888
 ## 技术说明
 
 `EMA(L) = EMA_previous + 2/(L+1) * (price - EMA_previous)`，历史上从首根收盘价初始化（部分看盘软件用 SMA 作起点，499 根之后残余差异约 0.7%，对 DIF 影响很小）；K线未收盘时使用最新K线价对上一根**已收盘**EMA作临时计算，**不**把盘中每个tick累加为新EMA。这样的算法可以避免一根K线内多次采样导致EMA计算错误。
+
+
+## 工程化运行
+
+前端 `dashboard.html` 保留回滚版本的完整HTML、CSS、JavaScript，排序、颜色、筛选与表格布局不变。原启动命令和 `/api/state`、`/dif-api/state` 继续兼容。
+
+推荐使用独立Python环境（Linux/macOS）：
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python binance_live_dif.py
+```
+
+Windows可用 `.venv\Scripts\activate` 激活后执行同样的安装、启动命令。Python最低3.10。
+
+也支持模块与安装后的命令行入口：
+
+```bash
+python -m contract_radar --market um --port 8765
+python -m pip install --no-deps .
+contract-radar --help
+```
+
+`requirements.txt` 固定部署依赖及其间接依赖；`pyproject.toml` 定义包、构建、CLI与开发工具。更新依赖时重新运行测试并调整固定版本。正常运行不需要Node。
+
+### 配置与日志
+
+配置优先级：默认值 < `RADAR_*` 环境变量 < 命令行。全部配置通过 `--help` 查看，格式与范围在启动前校验。`.env.example` 展示所有变量；Python启动不会自动读取`.env`。
+
+```bash
+export RADAR_MARKET=um
+export RADAR_LOG_LEVEL=INFO
+python -m contract_radar --log-file logs/radar.log
+```
+
+Linux使用环境文件时：
+
+```bash
+cp .env.example .env
+set -a
+. ./.env
+set +a
+python -m contract_radar
+```
+
+默认只输出控制台日志。`--log-file` 同时输出UTF-8文件，每份5MiB，保留3份旧文件。日志带时间、级别和线程名。Ctrl+C或SIGTERM停止后台任务、取消重试定时器、关闭WS/HTTP与REST连接。正在进行的HTTP请求受连接/读取超时约束；默认停止最多等待后台线程25秒，超时会记录日志，不能保证强制中断已在系统网络调用中的线程。
+
+| 常用变量 | 默认值 | 用途 |
+|---|---|---|
+| `RADAR_HOST` / `RADAR_PORT` | 127.0.0.1 / 8765 | 监听地址与端口 |
+| `RADAR_MARKET` | all | all / um / cm |
+| `RADAR_WORKERS` / `RADAR_RESYNC_WORKERS` | 7 / 2 | 初始化与同步并发 |
+| `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
+| `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
+| `RADAR_REQUEST_SPACING` | 0.10 | 全局REST间隔/秒 |
+| `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
+| `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
+| `RADAR_RESYNC_CAPACITY` | 1000 | 同步队列上限 |
+| `RADAR_HTTP_WORKERS` / `RADAR_HTTP_TIMEOUT` | 32 / 10 | HTTP并发连接上限与连接读写超时 |
+| `RADAR_LOG_LEVEL` / `RADAR_LOG_FILE` | INFO / 空 | 日志级别与可选文件 |
+| `RADAR_ALLOWED_HOSTS` | 127.0.0.1,localhost,[::1] | 允许Host，保留DNS重绑定防护 |
+
+### 健康接口
+
+- `/health`：进程可响应且未停止时200，不代表交易所已连接。
+- `/ready`：至少一个合约有90秒内的新鲜WS行情、未同步且服务未停止时200，否则503；表示有行情可用，不代表所有合约都在线。
+- 初次无法获取合约列表时每30秒后台重试；已有合约后按配置周期刷新。WS断线继续按退避重连。
+
+### Docker
+
+```bash
+docker compose up -d --build
+docker compose logs -f radar
+docker compose down
+```
+
+默认宿主机仅开放 `127.0.0.1:8765`，容器内部监听0.0.0.0；运行用户为非root，文件系统只读，日志自动限额，停止宽限35秒。Compose可从`.env`读取 `RADAR_PORT`（宿主机端口）、`RADAR_MARKET`、`RADAR_LOG_LEVEL`；其余高级项需在compose的environment中显式加入，容器内部端口保持8765。
+
+### Linux / 阿里云 systemd
+
+`deploy/contract-radar.service` 按 `/home/admin/contract-system` 和admin用户提供模板；按实际安装路径、用户名修改。先创建venv并安装依赖；可复制`.env.example`为`.env`设置配置。若启用文件日志，提前创建logs目录并确保admin可写。
+
+```bash
+sudo cp deploy/contract-radar.service /etc/systemd/system/contract-radar.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now contract-radar
+sudo systemctl status contract-radar
+sudo journalctl -u contract-radar -f
+```
+
+更新并重启：
+
+```bash
+git pull origin main
+.venv/bin/python -m pip install -r requirements.txt
+sudo systemctl restart contract-radar
+```
+
+通过远程浏览器访问时，可继续现有反向代理；`deploy/nginx.conf.example`提供转发模板，设置上游Host为127.0.0.1以兼容Host检查。直接远程监听需显式设置 `RADAR_HOST=0.0.0.0` 与允许的 `RADAR_ALLOWED_HOSTS`，并按部署环境配置网络访问权限。本项目HTTP服务没有登录认证，默认保持本机访问。
+
+### 开发与验证
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install '.[dev]'
+ruff check .
+ruff format --check .
+python -m unittest discover -s tests -v
+python -m build
+python tests/check_wheel.py
+```
+
+前端兼容测试（仅开发需要Node22）：
+
+```bash
+npm install --no-save jsdom@30.1.2
+node tests/test_ui.cjs
+```
+
+测试锁定回滚版本UI的Git blob哈希，以及原版EMA计算/盘中更新快照；覆盖配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。CI在Python3.10/3.12执行检查，单独验证原UI交互和容器构建。
+
+模块职责见 [架构与维护说明](docs/architecture.md)。

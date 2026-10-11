@@ -5,3 +5,11 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+.env
+logs/
+*.log
+*.egg-info/
+build/
+dist/
+node_modules/
+.ruff_cache/

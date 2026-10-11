@@ -1,4 +1,5 @@
 """核心逻辑的离线单元测试：python -m unittest discover -s tests"""
+
 import sys
 import time
 import types
@@ -9,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import binance_live_dif as bld  # noqa: E402
 
-I = bld.INTERVAL_MS
+I = bld.INTERVAL_MS  # noqa: E741 - retained test fixture shorthand
 BASE = 1_800_000_000_000 - (1_800_000_000_000 % I)  # 对齐到5分钟的某个开盘时间
 
 
@@ -61,7 +62,8 @@ class GapFillTests(unittest.TestCase):
         pair = bld.initialize_pair("CM", "ILLIQ_PERP", rows, now_ms=BASE + 60_000)
         self.assertEqual(pair.last_close_t, BASE - I)
         self.assertEqual(
-            bld.update_pair(pair, {"t": BASE, "c": "100", "x": False}, now_ms=BASE + 61_000), "ok")
+            bld.update_pair(pair, {"t": BASE, "c": "100", "x": False}, now_ms=BASE + 61_000), "ok"
+        )
 
     def test_middle_gap_is_filled(self):
         rows = history(skip={100, 101, 102})
@@ -107,8 +109,7 @@ class RefreshTests(unittest.TestCase):
 
 class HostCheckTests(unittest.TestCase):
     def check(self, host):
-        fake = types.SimpleNamespace(
-            headers={"Host": host}, ALLOWED_HOSTS=bld.HTTPHandler.ALLOWED_HOSTS)
+        fake = types.SimpleNamespace(headers={"Host": host}, ALLOWED_HOSTS=bld.HTTPHandler.ALLOWED_HOSTS)
         return bld.HTTPHandler._host_allowed(fake)
 
     def test_allowed(self):

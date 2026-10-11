@@ -1,0 +1,302 @@
+[
+  {
+    "name": "normal",
+    "skip": [],
+    "expected": {
+      "market": "UM",
+      "symbol": "TESTUSDT",
+      "last_close_t": 1799999700000,
+      "ema21": 102.92784582463904,
+      "ema50": 102.96402040600248,
+      "ema200": 102.83738087350122,
+      "previous_ema200": 102.82569625916454,
+      "closed_dif": -0.036174581363439984,
+      "live_t": 1800000000000,
+      "price": 105.0,
+      "live21": 103.11622347694458,
+      "live50": 103.04386274302199,
+      "live200": 102.85889947177483,
+      "confirmed": "",
+      "confirmed_at": 0,
+      "ws_connected": false,
+      "resync_pending": false,
+      "last_error": ""
+    },
+    "updates": [
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.92784582463904,
+          "ema50": 102.96402040600248,
+          "ema200": 102.83738087350122,
+          "previous_ema200": 102.82569625916454,
+          "closed_dif": -0.036174581363439984,
+          "live_t": 1800000000000,
+          "price": 90.0,
+          "live21": 101.75258711330821,
+          "live50": 102.45562744890434,
+          "live200": 102.70964574043155,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.92784582463904,
+          "ema50": 102.96402040600248,
+          "ema200": 102.83738087350122,
+          "previous_ema200": 102.82569625916454,
+          "closed_dif": -0.036174581363439984,
+          "live_t": 1800000000000,
+          "price": 125.0,
+          "live21": 104.9344052951264,
+          "live50": 103.82817646851218,
+          "live200": 103.05790444689922,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1800000000000,
+          "ema21": 103.11622347694458,
+          "ema50": 103.04386274302199,
+          "ema200": 102.85889947177483,
+          "previous_ema200": 102.83738087350122,
+          "closed_dif": 0.07236073392259357,
+          "live_t": 1800000000000,
+          "price": 105.0,
+          "live21": 103.11622347694458,
+          "live50": 103.04386274302199,
+          "live200": 102.85889947177483,
+          "confirmed": "golden",
+          "confirmed_at": 1800000300000,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      }
+    ]
+  },
+  {
+    "name": "middle_gap",
+    "skip": [
+      100,
+      101,
+      102
+    ],
+    "expected": {
+      "market": "UM",
+      "symbol": "TESTUSDT",
+      "last_close_t": 1799999700000,
+      "ema21": 102.92784582068285,
+      "ema50": 102.96393027019246,
+      "ema200": 102.82902719734824,
+      "previous_ema200": 102.81725862646732,
+      "closed_dif": -0.03608444950961598,
+      "live_t": 1800000000000,
+      "price": 105.0,
+      "live21": 103.11622347334804,
+      "live50": 103.04377614194962,
+      "live200": 102.85062891677761,
+      "confirmed": "",
+      "confirmed_at": 0,
+      "ws_connected": false,
+      "resync_pending": false,
+      "last_error": ""
+    },
+    "updates": [
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.92784582068285,
+          "ema50": 102.96393027019246,
+          "ema200": 102.82902719734824,
+          "previous_ema200": 102.81725862646732,
+          "closed_dif": -0.03608444950961598,
+          "live_t": 1800000000000,
+          "price": 90.0,
+          "live21": 101.75258710971168,
+          "live50": 102.45554084783197,
+          "live200": 102.70137518543433,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.92784582068285,
+          "ema50": 102.96393027019246,
+          "ema200": 102.82902719734824,
+          "previous_ema200": 102.81725862646732,
+          "closed_dif": -0.03608444950961598,
+          "live_t": 1800000000000,
+          "price": 125.0,
+          "live21": 104.93440529152986,
+          "live50": 103.82808986743981,
+          "live200": 103.04963389190199,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1800000000000,
+          "ema21": 103.11622347334804,
+          "ema50": 103.04377614194962,
+          "ema200": 102.85062891677761,
+          "previous_ema200": 102.82902719734824,
+          "closed_dif": 0.07244733139842197,
+          "live_t": 1800000000000,
+          "price": 105.0,
+          "live21": 103.11622347334804,
+          "live50": 103.04377614194962,
+          "live200": 102.85062891677761,
+          "confirmed": "golden",
+          "confirmed_at": 1800000300000,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      }
+    ]
+  },
+  {
+    "name": "trailing_gap",
+    "skip": [
+      298
+    ],
+    "expected": {
+      "market": "UM",
+      "symbol": "TESTUSDT",
+      "last_close_t": 1799999700000,
+      "ema21": 102.83693673372994,
+      "ema50": 102.92480471972796,
+      "ema200": 102.82743062474499,
+      "previous_ema200": 102.82569625916454,
+      "closed_dif": -0.0878679859980167,
+      "live_t": 1800000000000,
+      "price": 105.0,
+      "live21": 103.03357884884541,
+      "live50": 103.00618492679745,
+      "live200": 102.84904823046892,
+      "confirmed": "",
+      "confirmed_at": 0,
+      "ws_connected": false,
+      "resync_pending": false,
+      "last_error": ""
+    },
+    "updates": [
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.83693673372994,
+          "ema50": 102.92480471972796,
+          "ema200": 102.82743062474499,
+          "previous_ema200": 102.82569625916454,
+          "closed_dif": -0.0878679859980167,
+          "live_t": 1800000000000,
+          "price": 90.0,
+          "live21": 101.66994248520903,
+          "live50": 102.41794963267981,
+          "live200": 102.69979449912564,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1799999700000,
+          "ema21": 102.83693673372994,
+          "ema50": 102.92480471972796,
+          "ema200": 102.82743062474499,
+          "previous_ema200": 102.82569625916454,
+          "closed_dif": -0.0878679859980167,
+          "live_t": 1800000000000,
+          "price": 125.0,
+          "live21": 104.85176066702722,
+          "live50": 103.79049865228765,
+          "live200": 103.0480532055933,
+          "confirmed": "",
+          "confirmed_at": 0,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      },
+      {
+        "result": "ok",
+        "pair": {
+          "market": "UM",
+          "symbol": "TESTUSDT",
+          "last_close_t": 1800000000000,
+          "ema21": 103.03357884884541,
+          "ema50": 103.00618492679745,
+          "ema200": 102.84904823046892,
+          "previous_ema200": 102.82743062474499,
+          "closed_dif": 0.027393922047963315,
+          "live_t": 1800000000000,
+          "price": 105.0,
+          "live21": 103.03357884884541,
+          "live50": 103.00618492679745,
+          "live200": 102.84904823046892,
+          "confirmed": "golden",
+          "confirmed_at": 1800000300000,
+          "live_updated_at": 1800000300000,
+          "ws_connected": false,
+          "resync_pending": false,
+          "last_error": ""
+        }
+      }
+    ]
+  }
+]
