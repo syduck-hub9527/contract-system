@@ -234,13 +234,15 @@
   };
   // 接近零轴：DIF 在阈值内，且最近10根已收盘K线无金叉/死叉，当前K线也无盘中金叉/死叉
   const isNear = (row, t) => Math.abs(row.dif_pct) <= t && !row.recent_cross && !row.live_cross;
+  // 非接近零轴：不满足接近零轴，且没有盘中金叉/死叉（盘中信号只出现在盘中标签里）
+  const isFar = (row, t) => !isNear(row, t) && !row.live_cross;
   function matching(row, t) {
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
     if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
     if (filter === 'near') return isNear(row, t);
-    if (filter === 'far') return !isNear(row, t);
+    if (filter === 'far') return isFar(row, t);
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
     return true;
@@ -261,7 +263,8 @@
     $('m-near').textContent = near;
     $('m-threshold').textContent = `|DIF / 价格| ≤ ${t.toFixed(3)}%`;
     $('m-intra').innerHTML = `<span class="green">${liveGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${liveDeath}</span>`;
-    $('m-zero').innerHTML = `<span class="gold">${near}</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">${rows.length - near}</span>`;
+    const far = rows.filter(r => isFar(r, t)).length;
+    $('m-zero').innerHTML = `<span class="gold">${near}</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">${far}</span>`;
     const isBoot = state.loaded + state.skipped < state.total;
     $('progress').style.width = `${state.total ? 100*(state.loaded+state.skipped)/state.total : 0}%`;
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';

@@ -23,10 +23,10 @@ const tick=()=>new Promise(r=>setImmediate(r));
  click('live-golden');assert.deepEqual(names(),['BTCUSDT']);assert.match(d.querySelector('#tbody').textContent,/盘中金叉/);assert.doesNotMatch(d.querySelector('#tbody').textContent,/确认死叉/);
  assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['live-golden','live-death','near','far']);click('live-death');assert.deepEqual(names(),[]);
  const older=state.rows[0];older.dif_pct=0.5;click('near');assert.deepEqual(names(),['ETHUSD_PERP']);const refresh=()=>callbacks.find(x=>x[1]===2000)[0]();state.rows[2].recent_cross=true;await refresh();assert.deepEqual(names(),[]);state.rows[2].recent_cross=false;state.rows[1].live_cross='';await refresh();assert.deepEqual(names(),['BTCUSDT','ETHUSD_PERP']);state.rows[1].live_cross='golden';older.dif_pct=0.001;await refresh();
- click('far');assert.deepEqual(names(),['BTCUSDT']);
+ click('far');assert.deepEqual(names(),[]);
  click('near');
  d.querySelector('#market').value='CM';d.querySelector('#market').dispatchEvent(new dom.window.Event('change'));assert.deepEqual(names(),['ETHUSD_PERP']);
- d.querySelector('#market').value='all';click('far');d.querySelector('#query').value='BTC';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));assert.deepEqual(names(),['BTCUSDT']);
+ d.querySelector('#market').value='all';click('live-golden');d.querySelector('#query').value='BTC';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));assert.deepEqual(names(),['BTCUSDT']);
  d.querySelector('#query').value='';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));
  state.rows[0].symbol='<img src=x onerror=bad>USDT';await callbacks.find(x=>x[1]===2000)[0]();
  assert.equal(d.querySelectorAll('#tbody img').length,0);
@@ -34,8 +34,8 @@ const tick=()=>new Promise(r=>setImmediate(r));
  Object.assign(btc,{volume:0,volume_unit:'BTC',base_volume:0,quote_volume:0,quote_asset:'USDT',volume_stale:false,volume_updated_at:state.server_time});
  Object.assign(cm,{volume:494109,volume_unit:'张',base_volume:5192.94797687,base_asset:'BTC',quote_volume:null,volume_stale:false,volume_updated_at:state.server_time});
  const poll=callbacks.find(x=>x[1]===2000)[0];await poll();
- // 每个合约位于哪个标签：BTC 是盘中金叉，属于“非接近零轴”；其余合约属于“接近零轴”
- const rowOf=symbol=>{click(symbol==='BTCUSDT'?'far':'near');return [...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol);};
+ // 每个合约位于哪个标签：BTC 是盘中金叉；其余合约属于“接近零轴”
+ const rowOf=symbol=>{click(symbol==='BTCUSDT'?'live-golden':'near');return [...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol);};
  const cell=symbol=>rowOf(symbol).children[3];
  assert.equal(d.querySelectorAll('thead th').length,9);
  assert.equal(cell('BTCUSDT').textContent.trim(),'0');
@@ -61,7 +61,7 @@ const tick=()=>new Promise(r=>setImmediate(r));
  // 近期有交叉的合约：不在接近零轴，徽章也不能显示接近零轴，统计卡片同样不计入
  state.rows[2].recent_cross=true;await callbacks.find(x=>x[1]===2000)[0]();
  assert.equal(d.querySelector('#m-near').textContent,'1');
- assert.equal(d.querySelector('#m-zero').textContent,'1 / 2');
+ assert.equal(d.querySelector('#m-zero').textContent,'1 / 1');
  click('far');assert.doesNotMatch([...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent==='ETHUSD_PERP').textContent,/接近零轴/);
  state.rows[2].recent_cross=false;await callbacks.find(x=>x[1]===2000)[0]();
  // 阈值没有上限：输入 3 按 3 生效；低于 0.001 的值夹紧到 0.001
