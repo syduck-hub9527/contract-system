@@ -22,7 +22,7 @@ const tick=()=>new Promise(r=>setImmediate(r));
  const click=filter=>d.querySelector(`[data-filter="${filter}"]`).click();
  click('live-golden');assert.deepEqual(names(),['BTCUSDT']);assert.match(d.querySelector('#tbody').textContent,/盘中金叉/);assert.doesNotMatch(d.querySelector('#tbody').textContent,/确认死叉/);
  assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['all','live-golden','live-death','near']);click('live-death');assert.deepEqual(names(),[]);
- const older=state.rows[0];older.dif_pct=0.5;click('near');assert.deepEqual(names(),['BTCUSDT','ETHUSD_PERP']);state.rows[1].recent_cross=true;await callbacks.find(x=>x[1]===2000)[0]();assert.deepEqual(names(),['ETHUSD_PERP']);state.rows[1].recent_cross=false;older.dif_pct=0.001;await callbacks.find(x=>x[1]===2000)[0]();
+ const older=state.rows[0];older.dif_pct=0.5;click('near');assert.deepEqual(names(),['ETHUSD_PERP']);const refresh=()=>callbacks.find(x=>x[1]===2000)[0]();state.rows[2].recent_cross=true;await refresh();assert.deepEqual(names(),[]);state.rows[2].recent_cross=false;state.rows[1].live_cross='';await refresh();assert.deepEqual(names(),['BTCUSDT','ETHUSD_PERP']);state.rows[1].live_cross='golden';older.dif_pct=0.001;await refresh();
  click('all');
  d.querySelector('#market').value='CM';d.querySelector('#market').dispatchEvent(new dom.window.Event('change'));assert.deepEqual(names(),['ETHUSD_PERP']);
  d.querySelector('#market').value='all';d.querySelector('#query').value='BTC';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));assert.deepEqual(names(),['BTCUSDT']);
