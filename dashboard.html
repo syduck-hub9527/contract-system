@@ -138,7 +138,7 @@
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
     <div class="scroll">
       <table id="table">
-        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与详情。">24h 成交量</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
+        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。">24h 成交量</th><th class="right" title="当前资金费率，每个结算周期更新一次；悬停查看下次结算时间。">资金费率</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
@@ -167,16 +167,37 @@
     if (a >= .001) return n.toFixed(7).replace(/0+$/,'').replace(/\.$/,'');
     return n.toPrecision(7);
   };
+  // 大数字用“万 / 亿”缩写，保留两位小数（去掉末尾多余的0）；小数值沿用原精度
+  const compactFmt = (n) => {
+    if (!Number.isFinite(n)) return '—';
+    const a = Math.abs(n);
+    const trim = (x) => x.toFixed(2).replace(/\.?0+$/, '');
+    if (a >= 1e8) return `${trim(n / 1e8)} 亿`;
+    if (a >= 1e4) return `${trim(n / 1e4)} 万`;
+    if (a >= 1) return n.toLocaleString('en-US', {maximumFractionDigits: 2});
+    return n === 0 ? '0' : numberFmt(n);
+  };
   const escape = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const volumeCell = (r) => {
     const fmt = (n) => n === 0 ? '0' : numberFmt(n);
     if (!Number.isFinite(r.volume) || r.volume < 0) return '<span class="muted" title="成交量尚未获取">—</span>';
     if (r.volume_stale !== false) return `<span class="muted" title="成交量数据已过期；上次获取 ${escape(fmtTime(r.volume_updated_at))}">—</span>`;
-    const details = ['滚动24小时成交量', `获取时间 ${fmtTime(r.volume_updated_at)}`];
+    const details = ['滚动24小时成交量', `精确值 ${fmt(r.volume)} ${r.volume_unit || ''}`, `获取时间 ${fmtTime(r.volume_updated_at)}`];
     if (r.volume_close_time) details.push(`窗口结束 ${fmtTime(r.volume_close_time)}`);
     if (r.market === 'CM' && Number.isFinite(r.base_volume)) details.push(`币数量 ${fmt(r.base_volume)} ${r.base_asset || ''}`);
     if (Number.isFinite(r.quote_volume)) details.push(`成交额 ${fmt(r.quote_volume)} ${r.quote_asset || ''}`);
-    return `<span title="${escape(details.join(' · '))}">${fmt(r.volume)} ${escape(r.volume_unit || '')}</span>`;
+    return `<span title="${escape(details.join(' · '))}">${compactFmt(r.volume)} ${escape(r.volume_unit || '')}</span>`;
+  };
+  const fundingCell = (r) => {
+    if (!Number.isFinite(r.funding_rate) || r.funding_stale !== false) return '<span class="muted" title="资金费率尚未获取或已过期">—</span>';
+    const pct = r.funding_rate * 100;
+    const cls = pct > 0 ? 'pos' : pct < 0 ? 'neg' : '';
+    const sign = pct > 0 ? '+' : '';
+    const next = r.next_funding_time
+      ? new Date(r.next_funding_time).toLocaleString('zh-CN', {hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'})
+      : '—';
+    const title = `下次结算 ${next} · 获取时间 ${fmtTime(r.funding_updated_at)}`;
+    return `<span class="${cls}" title="${escape(title)}">${sign}${pct.toFixed(4)}%</span>`;
   };
   const threshold = () => {
     const t = parseFloat($('threshold').value);
@@ -276,6 +297,7 @@
         <td><span class="market ${r.market==='CM'?'cm':''}">${r.market === 'CM' ? '币本位' : 'U本位'}</span></td>
         <td class="right num">${numberFmt(r.price)}</td>
         <td class="right num">${volumeCell(r)}</td>
+        <td class="right num">${fundingCell(r)}</td>
         <td class="right num ${classes(r.dif)}">${r.dif >= 0 ? '+' : ''}${numberFmt(r.dif)}</td>
         <td class="right num ${classes(r.dif_pct)}">${r.dif_pct >= 0 ? '+' : ''}${r.dif_pct.toFixed(5)}%</td>
         <td>${badge(r,Math.abs(r.dif_pct)<=t)}</td>

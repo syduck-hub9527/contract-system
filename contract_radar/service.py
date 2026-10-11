@@ -15,6 +15,7 @@ import websocket
 from .config import Settings
 from .constants import CANDLE_LIMIT, INTERVAL_MS, MARKETS
 from .exchange import RESTClient, Stopped
+from .funding import Funding, missing_funding
 from .indicators import Pair, crossed, initialize_pair, update_pair
 from .volume import Volume, missing_volume
 
@@ -38,6 +39,7 @@ class Radar:
         self.states: dict[tuple[str, str], Pair] = {}
         self.symbol_metadata: dict[tuple[str, str], dict[str, str]] = {}
         self.volumes: dict[tuple[str, str], Volume] = {}
+        self.fundings: dict[tuple[str, str], Funding] = {}
         self.total = 0
         self.loaded = 0
         self.skipped = 0
@@ -101,6 +103,7 @@ class Radar:
                 if key[0] == market and key not in metadata:
                     self.symbol_metadata.pop(key, None)
                     self.volumes.pop(key, None)
+                    self.fundings.pop(key, None)
             self.symbol_metadata.update(metadata)
         return sorted(found)
 
@@ -136,6 +139,35 @@ class Radar:
         if invalid:
             self._error(f"{market} 成交量接口有 {invalid} 条无效记录，保留上次数据直至过期")
 
+    def _refresh_fundings(self, market):
+        """One batch request per market for the current funding rate of every perpetual."""
+        cfg = MARKETS[market]
+        data = self._json(cfg["rest"] + cfg["premium"])
+        if not isinstance(data, list):
+            raise RuntimeError("资金费率接口返回非列表数据")
+        now = self.now_ms()
+        with self.lock:
+            listed = {key for key in self.symbol_metadata if key[0] == market}
+        updates = {}
+        invalid = 0
+        for row in data:
+            if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
+                invalid += 1
+                continue
+            key = (market, row["symbol"].upper())
+            if key not in listed:
+                continue
+            try:
+                updates[key] = Funding.from_premium(row, now)
+            except (ValueError, TypeError, OverflowError):
+                invalid += 1
+        with self.lock:
+            for key, funding in updates.items():
+                if key in self.symbol_metadata:
+                    self.fundings[key] = funding
+        if invalid:
+            self._error(f"{market} 资金费率接口有 {invalid} 条无效记录，保留上次数据直至过期")
+
     def _volume_loop(self):
         while not self.stop_event.is_set():
             for market in self.enabled_markets:
@@ -149,6 +181,12 @@ class Radar:
                     return
                 except Exception as exc:
                     self._error(f"{MARKETS[market]['title']}24小时成交量获取失败: {exc}")
+                try:
+                    self._refresh_fundings(market)
+                except Stopped:
+                    return
+                except Exception as exc:
+                    self._error(f"{MARKETS[market]['title']}资金费率获取失败: {exc}")
             if self.stop_event.wait(self.settings.volume_refresh_seconds):
                 return
 
@@ -547,6 +585,7 @@ class Radar:
                         "ws_connected": state.ws_connected,
                         "resync_pending": state.resync_pending,
                         **self._volume_snapshot(state, now),
+                        **self._funding_snapshot(state, now),
                     }
                 )
             rows.sort(key=lambda x: abs(x["dif_pct"]))
@@ -570,6 +609,12 @@ class Radar:
         if volume is None:
             return missing_volume(state.market, metadata)
         return volume.snapshot(state.market, metadata, now, self.settings.volume_refresh_seconds * 3000)
+
+    def _funding_snapshot(self, state, now):
+        funding = self.fundings.get((state.market, state.symbol))
+        if funding is None:
+            return missing_funding()
+        return funding.snapshot(now, self.settings.volume_refresh_seconds * 3000)
 
     def health(self):
         now = self.now_ms()
