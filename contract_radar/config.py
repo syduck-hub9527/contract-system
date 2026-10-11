@@ -17,6 +17,7 @@ class Settings:
     resync_workers: int = 2
     ws_batch: int = 75
     refresh_seconds: int = 3600
+    volume_refresh_seconds: int = 60
     request_spacing: float = 0.10
     connect_timeout: float = 5.0
     read_timeout: float = 15.0
@@ -39,6 +40,7 @@ class Settings:
             "resync_workers": (1, 8),
             "ws_batch": (1, 200),
             "refresh_seconds": (60, 86400),
+            "volume_refresh_seconds": (30, 300),
             "retry_attempts": (1, 5),
             "resync_capacity": (1, 10000),
             "http_workers": (1, 128),

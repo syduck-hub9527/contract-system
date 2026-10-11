@@ -1,4 +1,4 @@
-/* Compatibility checks for the untouched UI. Dev only: npm install --no-save jsdom@30.1.2 */
+/* Compatibility and volume display checks for the original UI style. Dev only: npm install --no-save jsdom@30.1.2 */
 const fs=require('node:fs');
 const path=require('node:path');
 const assert=require('node:assert/strict');
@@ -27,5 +27,21 @@ const tick=()=>new Promise(r=>setImmediate(r));
  d.querySelector('#query').value='';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));
  state.rows[0].symbol='<img src=x onerror=bad>USDT';await callbacks.find(x=>x[1]===2000)[0]();
  assert.equal(d.querySelectorAll('#tbody img').length,0);
- assert.deepEqual(errors,[]);dom.window.close();console.log('Original UI sorting, filters, badges and escaping: PASS');
+ const btc=state.rows[1],cm=state.rows[2];
+ Object.assign(btc,{volume:0,volume_unit:'BTC',base_volume:0,quote_volume:0,quote_asset:'USDT',volume_stale:false,volume_updated_at:state.server_time});
+ Object.assign(cm,{volume:494109,volume_unit:'张',base_volume:5192.94797687,base_asset:'BTC',quote_volume:null,volume_stale:false,volume_updated_at:state.server_time});
+ const poll=callbacks.find(x=>x[1]===2000)[0];await poll();
+ const cell=symbol=>[...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol).children[3];
+ assert.equal(d.querySelectorAll('thead th').length,10);
+ assert.equal(cell('BTCUSDT').textContent.trim(),'0 BTC');
+ assert.match(cell('BTCUSDT').querySelector('span').title,/成交额 0 USDT/);
+ assert.match(cell('ETHUSD_PERP').textContent,/494,109 张/);
+ assert.match(cell('ETHUSD_PERP').querySelector('span').title,/币数量 5,192.95 BTC/);
+ assert.equal(cell(state.rows[0].symbol).textContent,'—');
+ btc.volume_stale=true;await poll();assert.equal(cell('BTCUSDT').textContent,'—');assert.match(cell('BTCUSDT').querySelector('span').title,/过期/);
+ btc.volume_stale=false;btc.volume=null;await poll();assert.equal(cell('BTCUSDT').textContent,'—');
+ btc.volume=NaN;await poll();assert.equal(cell('BTCUSDT').textContent,'—');
+ btc.volume=12;btc.volume_unit='<img src=x onerror=bad>';btc.quote_asset='" onmouseover="bad';await poll();
+ assert.equal(d.querySelectorAll('#tbody img').length,0);assert.equal(cell('BTCUSDT').querySelectorAll('[onmouseover]').length,0);
+ assert.deepEqual(errors,[]);dom.window.close();console.log('Original UI interaction and per-contract volume units, zero, missing, stale and escaping: PASS');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});

@@ -8,6 +8,7 @@
 - **盘中金叉 / 死叉**：当前**尚未收盘**的5分钟K线，DIF已经越过零轴；可能反复改变。
 - **确认金叉 / 死叉**：5分钟K线已收盘，DIF相对前一根已收盘K线越过零轴。最近5分钟的确认信号可见。
 - 价格高于还是低于 EMA200，用于辅助判断趋势；默认不强制过滤。
+- **24h 成交量**：列表中每个合约的滚动24小时成交量，默认每60秒批量刷新。
 
 ## 启动方法
 
@@ -65,7 +66,7 @@ python binance_live_dif.py --port 8888
 
 ## 工程化运行
 
-前端 `dashboard.html` 保留回滚版本的完整HTML、CSS、JavaScript，排序、颜色、筛选与表格布局不变。原启动命令和 `/api/state`、`/dif-api/state` 继续兼容。
+前端沿用原有配色、CSS、卡片、排序与筛选，在最新价格后增加“24h 成交量”列。原启动命令和 `/api/state`、`/dif-api/state` 继续兼容。
 
 推荐使用独立Python环境（Linux/macOS）：
 
@@ -117,6 +118,7 @@ python -m contract_radar
 | `RADAR_WORKERS` / `RADAR_RESYNC_WORKERS` | 7 / 2 | 初始化与同步并发 |
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
+| `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量刷新周期，允许30至300秒 |
 | `RADAR_REQUEST_SPACING` | 0.10 | 全局REST间隔/秒 |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
@@ -182,6 +184,29 @@ npm install --no-save jsdom@30.1.2
 node tests/test_ui.cjs
 ```
 
-测试锁定回滚版本UI的Git blob哈希，以及原版EMA计算/盘中更新快照；覆盖配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。CI在Python3.10/3.12执行检查，单独验证原UI交互和容器构建。
+测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。CI在Python3.10/3.12执行检查，单独验证UI交互和容器构建。
 
 模块职责见 [架构与维护说明](docs/architecture.md)。
+
+## 列表成交量
+
+通过币安公开REST接口获取**滚动24小时**统计，不是自然日统计，也不是当前一根5分钟K线的成交量。5分钟K线与EMA信号算法保持原样。
+
+| 市场 | 接口 | 列表数值与单位 | 悬停详情 |
+|---|---|---|---|
+| U本位 | `/fapi/v1/ticker/24hr` | `volume`，基础资产数量，例如 BTC | `quoteVolume` 成交额及报价资产单位，例如 USDT/USDC |
+| 币本位 | `/dapi/v1/ticker/24hr` | `volume`，合约张数 | `baseVolume` 币数量及基础资产单位，例如 BTC |
+
+币种单位取自对应市场的 `exchangeInfo`，不会仅凭合约名称猜测，也不会将币本位 `baseVolume` 错当成 USD 成交额。币本位接口没有 `quoteVolume`，该字段返回 `null`。
+
+默认每60秒对每个启用市场发一次不带symbol的批量请求，覆盖所有在交易的永续合约；每次全市场请求权重40。独立后台任务使用已有全局节流、418/429退避、超时与停止事件，网络请求不持有状态锁。
+
+尚未获取或缓存超过三个刷新周期时显示 `—`；悬停可查看原因。真实零成交量显示 `0`。接口失败保留上次缓存及其获取时间，超期后停止展示数值；不会把失败伪装成零成交量。获取时间表示REST响应的接收时间，窗口结束时间来自币安 `closeTime`，两者在悬停详情与API中独立提供。K线重同步不会丢失成交量，新上市合约自动纳入，下架时清理缓存。
+
+状态API每行新增：`volume`、`volume_unit`、`base_volume`、`quote_volume`、`base_asset`、`quote_asset`、`volume_updated_at`、`volume_close_time`、`volume_stale`。数值缺失时为 `null`；`volume_stale=true` 时仍可能保留旧数值供诊断，消费方必须检查新鲜度。
+
+```bash
+python binance_live_dif.py --volume-refresh-seconds 60
+```
+
+官方文档：[USDⓈ-M 市场数据](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data)、[COIN-M 市场数据](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/rest-api/market-data)。

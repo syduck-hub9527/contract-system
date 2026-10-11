@@ -1,4 +1,4 @@
-"""Validate the built wheel outside the checkout, including the original UI resource."""
+"""Validate the built wheel outside the checkout, including the volume UI resource."""
 
 import os
 import subprocess
@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory() as tmp:
 from importlib.resources import files
 assert "installed" in contract_radar.__file__
 b = files("contract_radar").joinpath("assets/dashboard.html").read_bytes()
-assert hashlib.sha1(f"blob {len(b)}\\0".encode()+b).hexdigest() == "e24dee65087ba1725af949648b40743311190d39"
+assert hashlib.sha1(f"blob {len(b)}\\0".encode()+b).hexdigest() == "2c0c140ae550089900c5bc9f53cc0140224d979d"
 """
     subprocess.run([sys.executable, "-c", code], cwd=tmp, env=env, check=True)
-print("Installed wheel and unchanged UI: PASS")
+print("Installed wheel and volume UI: PASS")

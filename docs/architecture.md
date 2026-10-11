@@ -1,25 +1,26 @@
 # 架构与维护说明
 
-本次将回滚后的行情雷达拆分为可安装Python包，前端文件保持原始字节，指标周期保持EMA21/50/200与5分钟K线。只读公开行情定位保留。
+行情雷达拆分为可安装Python包，指标周期保持EMA21/50/200与5分钟K线。列表新增24小时成交量，原界面风格与只读公开行情定位保留。
 
 | 模块 | 职责 |
 |---|---|
 | `binance_live_dif.py` | 兼容启动入口及旧Python导入 |
 | `contract_radar/indicators.py` | Pair、EMA、交叉、初始化与收盘更新；无网络 |
+| `contract_radar/volume.py` | 24小时成交量字段校验、UM/CM单位区分与缓存新鲜度；无网络 |
 | `contract_radar/constants.py` | 原有周期、端点与缺口上限 |
 | `contract_radar/exchange.py` | 线程独立REST会话、全局节流、限流退避、有限重试与取消 |
-| `contract_radar/service.py` | 初始化、WS订阅、重连、同步队列、合约刷新与快照 |
+| `contract_radar/service.py` | 初始化、WS订阅、重连、同步队列、合约及成交量批量刷新与快照 |
 | `contract_radar/config.py` | 默认值、环境变量、CLI及边界校验 |
 | `contract_radar/web.py` | 页面资源、原状态API、健康/就绪、Host限制与并发上限 |
 | `contract_radar/app.py` | 启动、日志、信号与停止流程 |
-| `contract_radar/assets/dashboard.html` | 安装包内原版UI的精确副本 |
+| `contract_radar/assets/dashboard.html` | 安装包内根目录UI的精确副本 |
 | `deploy/` | systemd与反向代理模板 |
 
 ## 兼容范围
 
-- 根目录UI是权威副本，安装包资源必须逐字节一致。测试校验回滚版本的Git blob `e24dee65087ba1725af949648b40743311190d39`；本次不修改UI。将来更改UI需显式授权、同步两份并有对应变更测试。
+- 根目录UI是权威副本，安装包资源必须逐字节一致。根据用户授权，在原UI上增加24小时成交量列，测试校验审核后的UI哈希并单独锁定原CSS。将来更改UI需同步两份并有对应变更测试。
 - 原 `python binance_live_dif.py --market ... --port ...` 可继续使用。新增 `python -m contract_radar` 与安装入口 `contract-radar`。
-- 原状态API的字段与路由保持，UI不需要迁移。原排序仍由前端按更新时间执行。
+- 原状态API的字段与路由保持，新增成交量字段，原排序仍由前端按更新时间执行。
 - 有效连续K线和补齐缺口场景与原版参考快照一致；新增拒绝非有限价格、重复/未对齐时间，避免异常数据污染EMA。
 - 状态时间统一使用交易所校准时钟；断线或同步中的历史确认信号不再误报为实时确认。线程停止时不会继续显示在线。
 
@@ -33,10 +34,12 @@
 
 单进程部署即可覆盖全市场。不要用多个HTTP worker进程包装同一应用，否则每进程都会重复订阅全市场；HTTP并发由本进程有界线程处理。
 
+成交量在合约列表获取之后启动独立后台任务，每个启用市场每个周期仅调用一次ticker/24hr。缓存按 `(market, symbol)` 隔离，独立于Pair，因此K线重同步替换Pair不会清空成交量。交换信息决定单位，只有在交易的永续合约进入缓存，下架及时清理；较旧的窗口响应不能覆盖较新的数据。缺失、非法或失败的记录不会刷新缓存时间，超过三个刷新周期在UI隐藏数值。快照在同一服务锁内读取元数据、缓存和Pair；REST在锁外请求并沿用全局限流与取消机制。
+
 ## 运维
 
 `/health`仅检查服务存活；`/ready`检查至少一个合约新鲜行情。监控全市场质量应结合loaded/total、fresh及页面WS连接数，不能把ready理解为全市场可用。
 
 应用不使用密钥、数据库或持久行情缓存。默认日志输出到终端或journald，文件日志可选轮转。用户主动配置文件日志时需要给运行用户对应路径写权限。
 
-依赖固定在requirements.txt，安装包声明兼容范围；更新后需通过lint、单元/集成、轮子安装和原UI哈希/交互检查。Docker基础镜像当前使用Python3.12-slim标签，镜像内容可能随上游更新；需要跨构建完全固定镜像时，由部署方固定已验证镜像digest。
+依赖固定在requirements.txt，安装包声明兼容范围；更新后需通过lint、单元/集成、轮子安装和UI哈希/交互检查。Docker基础镜像当前使用Python3.12-slim标签，镜像内容可能随上游更新；需要跨构建完全固定镜像时，由部署方固定已验证镜像digest。

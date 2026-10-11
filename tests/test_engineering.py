@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import threading
 import unittest
 import urllib.error
@@ -72,11 +73,19 @@ class IndicatorsAndUI(unittest.TestCase):
                 )
                 self.assertEqual(asdict(p), expected["pair"])
 
-    def test_ui_blob_exactly_matches_rollback_version(self):
+    def test_ui_copies_match_reviewed_volume_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "e24dee65087ba1725af949648b40743311190d39")
+        self.assertEqual(blob, "2c0c140ae550089900c5bc9f53cc0140224d979d")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
+
+    def test_original_css_is_preserved(self):
+        html = (ROOT / "dashboard.html").read_text()
+        style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+        self.assertEqual(
+            hashlib.sha256(style.encode()).hexdigest(),
+            "504d930a594073a9a0488fbe3a3e7dea59176b2c9f63e03e89f367d75277488b",
+        )
 
     def test_bad_prices_and_times_do_not_pollute_ema(self):
         p = initialize_pair("UM", "TESTUSDT", history(), BASE + 60000)
@@ -250,7 +259,8 @@ class Lifecycle(unittest.TestCase):
         r._symbols = lambda market: []
         r._spawn = MagicMock()
         r._bootstrap()
-        r._spawn.assert_called_once_with(r._refresh_loop, "refresh")
+        r._spawn.assert_any_call(r._volume_loop, "volume")
+        r._spawn.assert_any_call(r._refresh_loop, "refresh")
 
     def test_websocket_payload_and_generation_are_isolated(self):
         r = Radar(("UM",))
