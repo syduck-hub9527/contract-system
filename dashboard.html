@@ -113,10 +113,13 @@
   </div>
   <section class="surface">
     <div class="surface-top">
-      <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
+      <div class="title-row"><h2>合约信号监控</h2><div class="hint" id="sort-hint">预测列表优先按交叉概率、预计时间排序 · 自动刷新</div></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
-          <button class="tab active" data-filter="near">接近零轴</button>
+          <button class="tab active" data-filter="forecast-all">提前预测</button>
+          <button class="tab" data-filter="forecast-golden">预测金叉</button>
+          <button class="tab" data-filter="forecast-death">预测死叉</button>
+          <button class="tab" data-filter="near">接近零轴</button>
           <button class="tab" data-filter="live-golden">盘中金叉</button>
           <button class="tab" data-filter="live-death">盘中死叉</button>
           <button class="tab" data-filter="confirmed-golden">确认金叉</button>
@@ -124,6 +127,7 @@
           <button class="tab" data-filter="all">全部</button>
         </div>
         <div class="controls">
+          <label class="control">预测窗口 <select id="forecast-horizon"><option value="2">2根内 · 10分钟</option><option value="1">1根内 · 5分钟</option></select></label>
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
           <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" max="1.0" step="0.005" value="0.020"/> %</label>
           <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
@@ -138,12 +142,13 @@
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
     <div class="scroll">
       <table id="table">
-        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
+        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th title="已收盘EMA斜率预测，历史频率估计；不是盈利概率">金/死叉概率 · 1/2根内</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
     </div>
-    <div class="bottombar"><div>盘中信号会变化或消失；<b>确认金叉/死叉</b> 仅在5分钟K线收盘后产生。</div><div>DIF百分比 = (EMA21−EMA50) ÷ 最新价 × 100%</div></div>
+    <div class="bottombar"><div><b>提前预测</b> 基于上一根已收盘EMA斜率，窗口从观察收盘时开始，包含当前进行中K线；斜率改变时预测可失效。</div><div>概率是收盘交叉的历史频率估计，<b>不是盈利概率</b>；悬停概率查看样本与验证。</div></div>
+    <div class="bottombar"><div>候选自动补充最多10000根历史；相似条件训练≥30例、后段验证≥10例且偏差≤15个百分点才显示概率。</div><div id="forecast-status">等待预测样本</div></div>
   </section>
   <footer>
     <span><b>只读行情工具</b> · 不需要API Key · 不会下单 · 非投资建议</span>
@@ -154,7 +159,7 @@
 (() => {
   'use strict';
   let latest = null;
-  let filter = 'near';
+  let filter = 'forecast-all';
   let failed = false;
   let pending = false;
   const $ = (id) => document.getElementById(id);
@@ -180,6 +185,10 @@
   // 其余标签页（接近零轴/全部）才同时显示两种。
   const badge = (r, near) => {
     const parts = [];
+    if (filter.startsWith('forecast-')) {
+      const f = r.forecast;
+      if (f?.direction) return `<span class="signal ${f.direction}">${f.direction==='golden'?'↗ 预测金叉':'↘ 预测死叉'}</span>${r.live_cross===f.direction?'<span class="muted"> 盘中已穿越</span>':''}`;
+    }
     const showConfirmed = !filter.startsWith('live-');
     const showLive = !filter.startsWith('confirmed-');
     if (showConfirmed) {
@@ -198,7 +207,12 @@
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
-    if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
+    if ($('online').checked && !row.fresh) return false;
+    if (filter.startsWith('forecast-')) {
+      const f = row.forecast;
+      if (!row.fresh || !f?.direction || f.eta >= Number($('forecast-horizon').value)) return false;
+      return filter === 'forecast-all' || f.direction === filter.slice(9);
+    }
     if (filter === 'near') return Math.abs(row.dif_pct) <= t;
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
@@ -212,8 +226,12 @@
     const rows = state.rows || [];
     const t = threshold();
     // 按“最近更新”时间由新到旧排序；时间相同时，DIF 离零轴更近的在前
-    const filtered = rows.filter(r => matching(r, t)).sort((a, b) =>
-      (b.updated_at - a.updated_at) || (Math.abs(a.dif_pct) - Math.abs(b.dif_pct)));
+    const isForecast = filter.startsWith('forecast-');
+    const probabilityKey = $('forecast-horizon').value === '1' ? 'one' : 'two';
+    const filtered = rows.filter(r => matching(r, t)).sort((a, b) => isForecast
+      ? ((b.forecast[probabilityKey] ?? -1) - (a.forecast[probabilityKey] ?? -1)) || (a.forecast.eta - b.forecast.eta)
+      : (b.updated_at - a.updated_at) || (Math.abs(a.dif_pct) - Math.abs(b.dif_pct)));
+    $('sort-hint').textContent = isForecast ? '预测列表优先按交叉概率、预计时间排序 · 未满足样本要求仍显示斜率候选' : '按最近更新时间由新到旧排序 · 自动刷新';
     const near = rows.filter(r => Math.abs(r.dif_pct) <= t).length;
     const liveGold = rows.filter(r => r.live_cross === 'golden').length;
     const liveDeath = rows.filter(r => r.live_cross === 'death').length;
@@ -230,6 +248,7 @@
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
     $('count').innerHTML = `符合筛选 <b>${filtered.length}</b> 个 &nbsp;·&nbsp; ${escape(state.phase)}`;
     $('refresh').textContent = `面板刷新 ${fmtTime(state.server_time)} · WS ${state.ws_online}/${state.ws_expected}`;
+    $('forecast-status').textContent = state.forecast_pending ? `正在后台补充 ${state.forecast_pending} 个候选的概率样本` : '样本自动更新 · 概率模型超过24小时重新加载';
 
     const warnings = state.errors || [];
     const problem = state.total === 0 && warnings.length;
@@ -250,17 +269,26 @@
     $('table').style.display = filtered.length ? '' : 'none';
     $('empty').style.display = filtered.length ? 'none' : '';
     if (!filtered.length) {
-      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着扩大近零阈值或切换“全部”。';
+      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : isForecast ? '目前没有斜率预示未来1—2根交叉的新鲜行情；可切换“全部”查看。' : '目前没有符合条件的合约；试着扩大近零阈值或切换“全部”。';
       $('tbody').innerHTML = '';
       return;
     }
     const now = state.server_time;
     $('tbody').innerHTML = filtered.map((r) => {
-      const stale = !r.ws_connected || r.resync_pending;
-      const active = now - r.updated_at <= 90 * 1000 && r.ws_connected && !r.resync_pending;
+      const stale = !r.fresh;
+      const active = r.fresh;
       const link = r.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(r.symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(r.symbol)}`;
       const trend = r.above200 ? '<span class="pos trend">↑ 上方</span>' : '<span class="neg trend">↓ 下方</span>';
-      const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : stale ? '连接中' : fmtTime(r.updated_at);
+      const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : '行情过期/断线';
+      const f = r.forecast;
+      let forecastCell = '<span class="muted">—</span>';
+      if (f?.direction) {
+        const direction = f.direction === 'golden' ? '金叉' : '死叉';
+        const pct = p => Number.isFinite(p) ? (100*p).toFixed(1)+'%' : '—';
+        const statusText = f.error ? '样本下载失败' : f.pending && f.one == null ? '样本加载中' : f.one == null ? '样本不足/验证未通过' : `训练${f.train_n} / 验证${f.validation_n}例`;
+        const detail = `${f.reason}；EMA21斜率=${f.slope21}，EMA50斜率=${f.slope50}；观察收盘 ${fmtTime(f.observation)}；历史${f.history_bars}根；训练${f.train_n}例，验证${f.validation_n}例${f.interval_two ? '；2根内训练比例描述性95%区间 '+pct(f.interval_two[0])+'—'+pct(f.interval_two[1]) : ''}${f.error ? '；'+f.error : ''}`;
+        forecastCell = `<div title="${escape(detail)}"><span class="${f.direction==='golden'?'pos':'neg'}">${direction} · 1根 ${pct(f.one)} / 2根 ${pct(f.two)}</span><br><span class="muted">斜率推算约${f.eta.toFixed(2)}根 · ${escape(statusText)}</span></div>`;
+      }
       return `<tr class="${stale ? 'stale' : ''}">
         <td class="name">${escape(r.symbol)}</td>
         <td><span class="market ${r.market==='CM'?'cm':''}">${r.market === 'CM' ? '币本位' : 'U本位'}</span></td>
@@ -268,6 +296,7 @@
         <td class="right num ${classes(r.dif)}">${r.dif >= 0 ? '+' : ''}${numberFmt(r.dif)}</td>
         <td class="right num ${classes(r.dif_pct)}">${r.dif_pct >= 0 ? '+' : ''}${r.dif_pct.toFixed(5)}%</td>
         <td>${badge(r,Math.abs(r.dif_pct)<=t)}</td>
+        <td>${forecastCell}</td>
         <td>${trend}</td>
         <td class="muted">${status}</td>
         <td><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">打开 ↗</a></td>
@@ -289,6 +318,11 @@
       $('live-dot').classList.remove('online');
       $('connection').textContent = '监控服务连接中断';
       $('refresh').textContent = `上次数据可能已过期：${e.message}`;
+      // Never leave old percentages visible when the local API stops responding.
+      $('tbody').innerHTML = '';
+      $('table').style.display = 'none';
+      $('empty').style.display = '';
+      $('empty-text').textContent = '本地服务连接中断，暂停显示预测概率。';
     } finally { pending = false; }
   }
   document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
@@ -296,7 +330,7 @@
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b===button));
     render();
   }));
-  ['market','threshold','query','above200','online'].forEach(id => {
+  ['market','threshold','query','above200','online','forecast-horizon'].forEach(id => {
     $(id).addEventListener('input', render);
     $(id).addEventListener('change', render);
   });

@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -19,12 +20,15 @@ from urllib.parse import urlparse
 import requests
 import websocket
 
+from forecast import fit_table, predict
+
 LOG = logging.getLogger("difradar")
 INTERVAL_MS = 5 * 60 * 1000
 CANDLE_LIMIT = 499  # 请求权重 2；给 EMA200 足够长的预热数据
 WS_BATCH = 75        # 每条连接订阅较少币种，降低单条 WS 消息量
 MAX_FILL = 20000     # 长时间无成交的合约最多向前补齐的K线数，超出则跳过
 SYMBOL_REFRESH_SECONDS = 3600  # 定期刷新合约列表，加入新上市、移除已下架
+FORECAST_HISTORY = 10000  # 仅对交叉前候选补充历史，避免全市场同时请求
 MARKETS = {
     "UM": {
         "title": "U本位",
@@ -89,6 +93,12 @@ class Pair:
     ws_connected: bool = False
     resync_pending: bool = False
     last_error: str = ""
+    slope21: float = 0.0
+    slope50: float = 0.0
+    actual_recent_times: list[int] = field(default_factory=list)
+    forecast_contiguous: int = 0
+    forecast_model: dict = field(default_factory=dict)
+    forecast_error: str = ""
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -120,7 +130,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     filled = 0
     for row in complete:
         close = float(row[4])
-        if close <= 0:
+        if not math.isfinite(close) or close <= 0:
             raise ValueError("无效K线价格")
         open_t = int(row[0])
         while series and series[-1][0] + INTERVAL_MS < open_t:
@@ -141,11 +151,14 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     previous_dif = None
     signal = ""
     signal_at = 0
+    slope21 = slope50 = 0.0
     for idx, (open_t, close) in enumerate(series[1:], start=1):
         previous_ema200 = ema200
+        old21, old50 = ema21, ema50
         ema21 = ema_update(ema21, close, 21)
         ema50 = ema_update(ema50, close, 50)
         ema200 = ema_update(ema200, close, 200)
+        slope21, slope50 = ema21 - old21, ema50 - old50
         dif = ema21 - ema50
         if previous_dif is not None and idx == len(series) - 1:
             signal = crossed(previous_dif, dif)
@@ -162,6 +175,14 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         price = closed_price
         live_t = closed_t
     is_running_candle = live_t > closed_t
+    actual = [(int(r[0]), float(r[4])) for r in complete]
+    contiguous = 1
+    for i in range(len(actual)-1, 0, -1):
+        if actual[i][0] != actual[i-1][0] + INTERVAL_MS:
+            break
+        contiguous += 1
+    if actual[-1][0] != closed_t:
+        contiguous = 0
     return Pair(
         market=market,
         symbol=symbol,
@@ -178,7 +199,12 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         live200=ema_update(ema200, price, 200) if is_running_candle else ema200,
         confirmed=signal,
         confirmed_at=signal_at,
-        live_updated_at=int(time.time() * 1000),
+        live_updated_at=now_ms,
+        slope21=slope21,
+        slope50=slope50,
+        actual_recent_times=[t for t, _ in actual[-3:]],
+        forecast_contiguous=contiguous,
+        forecast_model=fit_table(actual, current_open),
     )
 
 
@@ -192,7 +218,7 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
     if t > pair.last_close_t + INTERVAL_MS:
         return "gap"  # 可能掉线错过收盘，必须重新REST同步
     p = float(k["c"])
-    if p <= 0:
+    if not math.isfinite(p) or p <= 0:
         return "ignored"
 
     l21 = ema_update(pair.ema21, p, 21)
@@ -208,9 +234,13 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.confirmed = direction
         pair.confirmed_at = t + INTERVAL_MS if direction else 0
         pair.previous_ema200 = pair.ema200
+        pair.slope21, pair.slope50 = l21 - pair.ema21, l50 - pair.ema50
         pair.ema21, pair.ema50, pair.ema200 = l21, l50, l200
         pair.closed_dif = l21 - l50
         pair.last_close_t = t
+        pair.forecast_contiguous = (pair.forecast_contiguous + 1
+                                    if pair.actual_recent_times and pair.actual_recent_times[-1] + INTERVAL_MS == t else 1)
+        pair.actual_recent_times = (pair.actual_recent_times + [t])[-3:]
     return "ok"
 
 
@@ -233,6 +263,9 @@ class Radar:
         self.resync_attempts: dict[tuple[str, str], int] = {}
         self.time_offset_ms = 0  # 币安服务器时间 - 本机时间，用于判断K线是否收盘
         self.local = threading.local()
+        self.forecast_queue: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=8)
+        self.forecast_pending: set[tuple[str, str]] = set()
+        self.forecast_attempts: dict[tuple[str, str], int] = {}
 
     def now_ms(self) -> int:
         return int(time.time() * 1000) + self.time_offset_ms
@@ -308,6 +341,7 @@ class Radar:
         return initialize_pair(market, symbol, rows, now_ms=self.now_ms())
 
     def start(self):
+        threading.Thread(target=self._forecast_worker, daemon=True, name="forecast-history").start()
         for i in range(2):
             threading.Thread(target=self._resync_worker, daemon=True, name=f"resync-{i}").start()
         threading.Thread(target=self._bootstrap, daemon=True, name="bootstrap").start()
@@ -450,7 +484,7 @@ class Radar:
                         state = self.states.get((market, symbol))
                         if state is None or state.resync_pending:
                             return
-                        result = update_pair(state, k)
+                        result = update_pair(state, k, now_ms=self.now_ms())
                         if result == "gap":
                             state.resync_pending = True
                             state.ws_connected = False
@@ -502,6 +536,10 @@ class Radar:
                 refreshed = self._prime(market, symbol)
                 with self.lock:
                     if key in self.states:
+                        old = self.states[key]
+                        if old.forecast_model.get("bars", 0) > refreshed.forecast_model.get("bars", 0):
+                            refreshed.forecast_model = old.forecast_model
+                        refreshed.forecast_error = old.forecast_error
                         # 旧 socket 一般仍在线，重新计算后等待下一次K线推送
                         refreshed.ws_connected = bool(
                             self.ws_online.get(self.symbol_ws.get(key, ""), False))
@@ -521,8 +559,71 @@ class Radar:
             finally:
                 self.resync_queue.task_done()
 
+    def _schedule_forecast(self, key: tuple[str, str], now: int):
+        # Called under self.lock. One worker, bounded queue and hourly retry cap.
+        if key in self.forecast_pending or now - self.forecast_attempts.get(key, 0) < 3600_000:
+            return
+        try:
+            self.forecast_queue.put_nowait(key)
+        except queue.Full:
+            return
+        self.forecast_pending.add(key)
+        self.forecast_attempts[key] = now
+
+    def _forecast_history(self, market: str, symbol: str, cutoff: int) -> list[tuple[int, float]]:
+        found = {}
+        end = cutoff - 1
+        cfg = MARKETS[market]
+        while len(found) < FORECAST_HISTORY:
+            limit = min(1000, FORECAST_HISTORY - len(found))
+            rows = self._json(cfg["rest"] + cfg["klines"],
+                              {"symbol": symbol, "interval": "5m", "limit": limit, "endTime": end})
+            if not isinstance(rows, list):
+                raise ValueError("概率历史返回格式无效")
+            if not rows:
+                break
+            oldest = min(int(r[0]) for r in rows)
+            if oldest > end:
+                raise ValueError("概率历史分页未推进")
+            for row in rows:
+                if int(row[6]) < cutoff:
+                    found[int(row[0])] = float(row[4])
+            end = oldest - 1
+            if len(rows) < limit:
+                break
+            time.sleep(.35)  # 降低大历史请求的权重消耗，与全局限流共同生效
+        return sorted(found.items())[-FORECAST_HISTORY:]
+
+    def _forecast_worker(self):
+        while True:
+            key = self.forecast_queue.get()
+            try:
+                with self.lock:
+                    if key not in self.states:
+                        continue
+                cutoff = self.now_ms() // INTERVAL_MS * INTERVAL_MS
+                rows = self._forecast_history(*key, cutoff)
+                if len(rows) < 213:
+                    raise ValueError("完整历史不足")
+                model = fit_table(rows, cutoff)
+                with self.lock:
+                    state = self.states.get(key)
+                    if state:
+                        state.forecast_model = model
+                        state.forecast_error = ""
+            except Exception as exc:
+                with self.lock:
+                    state = self.states.get(key)
+                    if state:
+                        state.forecast_error = str(exc)[:180]
+                self._error(f"{key[0]} {key[1]} 概率样本更新失败: {exc}")
+            finally:
+                with self.lock:
+                    self.forecast_pending.discard(key)
+                self.forecast_queue.task_done()
+
     def snapshot(self) -> dict[str, Any]:
-        now = int(time.time() * 1000)
+        now = self.now_ms()
         with self.lock:
             states = list(self.states.values())
             rows = []
@@ -532,14 +633,25 @@ class Radar:
                 dif = state.live21 - state.live50
                 dif_pct = 100.0 * dif / state.price
                 fresh_live = (state.ws_connected and not state.resync_pending
-                              and now - state.live_updated_at <= 90_000)
+                              and 0 <= now - state.live_updated_at <= 90_000)
                 live_cross = (crossed(state.closed_dif, dif)
                               if fresh_live and state.live_t > state.last_close_t else "")
                 confirmed = (
                     state.confirmed
-                    if state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
+                    if fresh_live and state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
                     else ""
                 )
+                forecast = predict(state.closed_dif, state.slope21, state.slope50,
+                                   state.forecast_model, state.last_close_t + INTERVAL_MS,
+                                   now, fresh_live, state.forecast_contiguous > 210)
+                key = (state.market, state.symbol)
+                if forecast["direction"] and self.loaded + self.skipped >= self.total:
+                    if (state.forecast_model.get("bars", 0) < FORECAST_HISTORY or
+                            now - state.forecast_model.get("cutoff", 0) > 24 * 3600_000):
+                        self._schedule_forecast(key, now)
+                forecast.update(pending=key in self.forecast_pending,
+                                history_bars=state.forecast_model.get("bars", 0),
+                                error=state.forecast_error)
                 rows.append({
                     "market": state.market,
                     "symbol": state.symbol,
@@ -557,6 +669,8 @@ class Radar:
                     "current_candle": state.live_t > state.last_close_t,
                     "ws_connected": state.ws_connected,
                     "resync_pending": state.resync_pending,
+                    "fresh": fresh_live,
+                    "forecast": forecast,
                 })
             rows.sort(key=lambda x: abs(x["dif_pct"]))
             online = sum(1 for connected in self.ws_online.values() if connected)
@@ -570,6 +684,7 @@ class Radar:
                 "ws_expected": self.ws_expected,
                 "errors": list(reversed(self.errors[-3:])),
                 "rows": rows,
+                "forecast_pending": len(self.forecast_pending),
             }
 
 
