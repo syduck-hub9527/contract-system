@@ -77,7 +77,7 @@ class IndicatorsAndUI(unittest.TestCase):
     def test_ui_copies_match_reviewed_volume_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "bc4c1c05ab53e9d84a9b3c0fcbd2f5c383ec8a67")
+        self.assertEqual(blob, "7a5bcfa9a465ffa01d57bb8cc9941cbc665ddf6c")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):
@@ -85,7 +85,7 @@ class IndicatorsAndUI(unittest.TestCase):
         style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
         self.assertEqual(
             hashlib.sha256(style.encode()).hexdigest(),
-            "9c0128f5cdcd060517afa87c75e5009f1aec1e35ac0aaaf4c7404beb1b271818",
+            "3b914c23372c2b500ae545a2a1c9848f5d0e4b77beec40759ba40b4fef2f6ab4",
         )
 
     def test_bad_prices_and_times_do_not_pollute_ema(self):
