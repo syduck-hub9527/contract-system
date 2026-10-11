@@ -129,7 +129,7 @@
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
           <div class="stack">
             <div class="threshold-row">
-              <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" max="1.0" step="0.005" value="0.050"/> %</label>
+              <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" step="0.005" value="0.050"/> %</label>
               <button class="reset" id="threshold-reset" type="button" title="恢复默认阈值 0.050%">重置</button>
             </div>
             <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
@@ -208,7 +208,7 @@
   };
   const threshold = () => {
     const t = parseFloat($('threshold').value);
-    return Number.isFinite(t) ? Math.min(1,Math.max(.001,t)) : .05;
+    return Number.isFinite(t) ? Math.max(.001,t) : .05;
   };
   const classes = (n) => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
   // 确认信号和盘中信号可能同时存在（刚确认死叉、当前K线又反向穿越），
@@ -348,7 +348,7 @@
   $('threshold').addEventListener('input', () => {
     try { localStorage.setItem(THRESHOLD_KEY, String(threshold())); } catch (e) {}
   });
-  // 输入超出范围（如 3）时，失去焦点后夹紧到实际生效的值，避免显示与计算不一致
+  // 输入过小（低于 0.001）时，失去焦点后夹紧到实际生效的值，避免显示与计算不一致
   $('threshold').addEventListener('change', () => { $('threshold').value = threshold().toFixed(3); });
   $('threshold-reset').addEventListener('click', () => {
     $('threshold').value = '0.050';

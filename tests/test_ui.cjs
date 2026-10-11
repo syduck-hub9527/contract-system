@@ -63,9 +63,10 @@ const tick=()=>new Promise(r=>setImmediate(r));
  assert.equal(d.querySelector('#m-near').textContent,'1');
  click('far');assert.doesNotMatch([...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent==='ETHUSD_PERP').textContent,/接近零轴/);
  state.rows[2].recent_cross=false;await callbacks.find(x=>x[1]===2000)[0]();
- // 超出范围的阈值：显示值与生效值一致
+ // 阈值没有上限：输入 3 按 3 生效；低于 0.001 的值夹紧到 0.001
  const th0=d.querySelector('#threshold');th0.value='3';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));
- assert.equal(th0.value,'1.000');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'1');
+ th0.value='0';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));assert.equal(th0.value,'0.001');th0.value='3';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));
+ assert.equal(th0.value,'3.000');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'3');
  d.querySelector('#threshold-reset').click();assert.equal(th0.value,'0.050');
  const th=d.querySelector('#threshold');th.value='0.036';th.dispatchEvent(new dom.window.Event('input'));
  assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'0.036');
