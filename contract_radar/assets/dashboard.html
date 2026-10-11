@@ -325,6 +325,15 @@
     $(id).addEventListener('input', render);
     $(id).addEventListener('change', render);
   });
+  // 近零阈值跨刷新保存；浏览器禁用存储时静默忽略
+  const THRESHOLD_KEY = 'difradar.threshold';
+  try {
+    const saved = localStorage.getItem(THRESHOLD_KEY);
+    if (saved !== null && Number.isFinite(parseFloat(saved))) $('threshold').value = saved;
+  } catch (e) {}
+  $('threshold').addEventListener('input', () => {
+    try { localStorage.setItem(THRESHOLD_KEY, $('threshold').value); } catch (e) {}
+  });
   $('now').textContent = fmtTime(Date.now());
   setInterval(() => { $('now').textContent = fmtTime(Date.now()); }, 1000);
   poll();

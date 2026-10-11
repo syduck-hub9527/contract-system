@@ -76,7 +76,7 @@ class IndicatorsAndUI(unittest.TestCase):
     def test_ui_copies_match_reviewed_volume_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "2bb73b1517840d8b62e35cc2c94344d490587bc2")
+        self.assertEqual(blob, "2943dd4ee245b472daa68593c35b2e271811e2ea")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):
