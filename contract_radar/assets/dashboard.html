@@ -116,12 +116,9 @@
       <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
-          <button class="tab active" data-filter="near">接近零轴</button>
           <button class="tab" data-filter="live-golden">盘中金叉</button>
           <button class="tab" data-filter="live-death">盘中死叉</button>
-          <button class="tab" data-filter="confirmed-golden">确认金叉</button>
-          <button class="tab" data-filter="confirmed-death">确认死叉</button>
-          <button class="tab" data-filter="all">全部</button>
+          <button class="tab active" data-filter="all">全部</button>
         </div>
         <div class="controls">
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
@@ -154,7 +151,7 @@
 (() => {
   'use strict';
   let latest = null;
-  let filter = 'near';
+  let filter = 'all';
   let failed = false;
   let pending = false;
   const $ = (id) => document.getElementById(id);
@@ -230,11 +227,8 @@
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
     if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
-    if (filter === 'near') return Math.abs(row.dif_pct) <= t;
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
-    if (filter === 'confirmed-golden') return row.confirmed_cross === 'golden';
-    if (filter === 'confirmed-death') return row.confirmed_cross === 'death';
     return true;
   }
   function render() {
