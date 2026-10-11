@@ -47,6 +47,10 @@
     .control select,.control input[type=number],.search{background:#0e1724;color:var(--text);border:1px solid #344156;border-radius:8px;outline:0;padding:9px 10px;font-size:12px}
     .control input[type=number]{width:82px;text-align:right;font-variant-numeric:tabular-nums}
     .search{width:142px}
+.stack{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.threshold-row{display:flex;align-items:center;gap:8px}
+.reset{background:#263248;color:#c9d4e3;border:1px solid #344156;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:650;cursor:pointer}
+.reset:hover{color:#fff}
     select:focus,input:focus{border-color:#d4a34c}
     .check{display:flex;align-items:center;gap:7px;color:#acb9cb;font-size:12px;cursor:pointer;white-space:nowrap}
     .check input{accent-color:#f3bb48}
@@ -116,15 +120,20 @@
       <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
-          <button class="tab active" data-filter="all">全部</button>
-          <button class="tab" data-filter="live-golden">盘中金叉</button>
+          <button class="tab active" data-filter="live-golden">盘中金叉</button>
           <button class="tab" data-filter="live-death">盘中死叉</button>
           <button class="tab" data-filter="near">接近零轴</button>
+          <button class="tab" data-filter="far">非接近零轴</button>
         </div>
         <div class="controls">
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
-          <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" max="1.0" step="0.005" value="0.050"/> %</label>
-          <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
+          <div class="stack">
+            <div class="threshold-row">
+              <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" max="1.0" step="0.005" value="0.050"/> %</label>
+              <button class="reset" id="threshold-reset" type="button" title="恢复默认阈值 0.050%">重置</button>
+            </div>
+            <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
+          </div>
         </div>
       </div>
       <div class="filters" style="margin-top:13px">
@@ -152,7 +161,7 @@
 (() => {
   'use strict';
   let latest = null;
-  let filter = 'all';
+  let filter = 'live-golden';
   let failed = false;
   let pending = false;
   const $ = (id) => document.getElementById(id);
@@ -223,12 +232,15 @@
     if (!parts.length) return '<span class="signal">—</span>';
     return `<span style="display:inline-flex;gap:6px">${parts.join('')}</span>`;
   };
+  // 接近零轴：DIF 在阈值内，且最近10根已收盘K线无金叉/死叉，当前K线也无盘中金叉/死叉
+  const isNear = (row, t) => Math.abs(row.dif_pct) <= t && !row.recent_cross && !row.live_cross;
   function matching(row, t) {
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
     if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
-    if (filter === 'near') return Math.abs(row.dif_pct) <= t && !row.recent_cross && !row.live_cross;
+    if (filter === 'near') return isNear(row, t);
+    if (filter === 'far') return !isNear(row, t);
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
     return true;
@@ -335,6 +347,11 @@
   } catch (e) {}
   $('threshold').addEventListener('input', () => {
     try { localStorage.setItem(THRESHOLD_KEY, $('threshold').value); } catch (e) {}
+  });
+  $('threshold-reset').addEventListener('click', () => {
+    $('threshold').value = '0.050';
+    try { localStorage.setItem(THRESHOLD_KEY, '0.050'); } catch (e) {}
+    render();
   });
   $('now').textContent = fmtTime(Date.now());
   setInterval(() => { $('now').textContent = fmtTime(Date.now()); }, 1000);
