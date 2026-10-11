@@ -61,6 +61,7 @@ const tick=()=>new Promise(r=>setImmediate(r));
  // 近期有交叉的合约：不在接近零轴，徽章也不能显示接近零轴，统计卡片同样不计入
  state.rows[2].recent_cross=true;await callbacks.find(x=>x[1]===2000)[0]();
  assert.equal(d.querySelector('#m-near').textContent,'1');
+ assert.equal(d.querySelector('#m-zero').textContent,'1 / 2');
  click('far');assert.doesNotMatch([...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent==='ETHUSD_PERP').textContent,/接近零轴/);
  state.rows[2].recent_cross=false;await callbacks.find(x=>x[1]===2000)[0]();
  // 阈值没有上限：输入 3 按 3 生效；低于 0.001 的值夹紧到 0.001

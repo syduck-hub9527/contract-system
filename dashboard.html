@@ -113,7 +113,7 @@
     <div class="card"><div class="card-name">已载入的永续合约 <span class="symbol">◫</span></div><div class="card-value" id="m-loaded">--</div><div class="card-note" id="m-progress">正在加载交易对</div></div>
     <div class="card"><div class="card-name">DIF 接近零轴 <span class="symbol">◎</span></div><div class="card-value gold" id="m-near">--</div><div class="card-note" id="m-threshold">|DIF / 价格| ≤ 0.050%</div></div>
     <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
-    <div class="card"><div class="card-name">已确认金叉 / 死叉 <span class="symbol">✓</span></div><div class="card-value" id="m-confirmed"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">最近5分钟的收盘信号</div></div>
+    <div class="card"><div class="card-name">接近零轴 / 非接近零轴 <span class="symbol">◎</span></div><div class="card-value" id="m-zero"><span class="gold">0</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">0</span></div><div class="card-note">接近零轴：阈值内且无近期交叉；其余为非接近零轴</div></div>
   </div>
   <section class="surface">
     <div class="surface-top">
@@ -256,14 +256,12 @@
     const near = rows.filter(r => isNear(r, t)).length;
     const liveGold = rows.filter(r => r.live_cross === 'golden').length;
     const liveDeath = rows.filter(r => r.live_cross === 'death').length;
-    const confGold = rows.filter(r => r.confirmed_cross === 'golden').length;
-    const confDeath = rows.filter(r => r.confirmed_cross === 'death').length;
     $('m-loaded').textContent = state.loaded.toLocaleString();
     $('m-progress').textContent = `已发现 ${state.total} 个 · 跳过 ${state.skipped} 个`;
     $('m-near').textContent = near;
     $('m-threshold').textContent = `|DIF / 价格| ≤ ${t.toFixed(3)}%`;
     $('m-intra').innerHTML = `<span class="green">${liveGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${liveDeath}</span>`;
-    $('m-confirmed').innerHTML = `<span class="green">${confGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${confDeath}</span>`;
+    $('m-zero').innerHTML = `<span class="gold">${near}</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">${rows.length - near}</span>`;
     const isBoot = state.loaded + state.skipped < state.total;
     $('progress').style.width = `${state.total ? 100*(state.loaded+state.skipped)/state.total : 0}%`;
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
