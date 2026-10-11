@@ -12,6 +12,7 @@ MARKETS = {
         "exchange": "/fapi/v1/exchangeInfo",
         "klines": "/fapi/v1/klines",
         "time": "/fapi/v1/time",
+        "ticker": "/fapi/v1/ticker/24hr",  # 24h 成交量/成交额，无 symbol 时 weight=40
         "ws": "wss://fstream.binance.com/market/stream",  # 2026-04 后的新地址
     },
     "CM": {
@@ -20,6 +21,7 @@ MARKETS = {
         "exchange": "/dapi/v1/exchangeInfo",
         "klines": "/dapi/v1/klines",
         "time": "/dapi/v1/time",
+        "ticker": "/dapi/v1/ticker/24hr",  # 24h 成交量，无 symbol 时 weight=40
         "ws": "wss://dstream.binance.com/stream",
     },
 }

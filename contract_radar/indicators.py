@@ -30,6 +30,9 @@ class Pair:
     ws_connected: bool = False
     resync_pending: bool = False
     last_error: str = ""
+    # 24h rolling window volume from /ticker/24hr (Binance public market data)
+    volume: float = 0.0  # base asset volume
+    quote_volume: float = 0.0  # quote asset volume (USDT for UM, USD for CM)
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
