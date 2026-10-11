@@ -138,7 +138,7 @@
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
     <div class="scroll">
       <table id="table">
-        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。">24h 成交量</th><th class="right" title="当前资金费率，每个结算周期更新一次；悬停查看下次结算时间。">资金费率</th><th class="right">DIF (21−50)</th><th class="right">DIF / 价格</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
+        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。">24h 成交量</th><th class="right" title="当前资金费率，每个结算周期更新一次；悬停查看下次结算时间。">资金费率</th><th>当前信号</th><th>EMA200</th><th>最近更新</th><th>图表</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
@@ -186,7 +186,7 @@
     if (r.volume_close_time) details.push(`窗口结束 ${fmtTime(r.volume_close_time)}`);
     if (r.market === 'CM' && Number.isFinite(r.base_volume)) details.push(`币数量 ${fmt(r.base_volume)} ${r.base_asset || ''}`);
     if (Number.isFinite(r.quote_volume)) details.push(`成交额 ${fmt(r.quote_volume)} ${r.quote_asset || ''}`);
-    return `<span title="${escape(details.join(' · '))}">${compactFmt(r.volume)} ${escape(r.volume_unit || '')}</span>`;
+    return `<span title="${escape(details.join(' · '))}">${compactFmt(r.volume)}</span>`;
   };
   const fundingCell = (r) => {
     if (!Number.isFinite(r.funding_rate) || r.funding_stale !== false) return '<span class="muted" title="资金费率尚未获取或已过期">—</span>';
@@ -298,8 +298,6 @@
         <td class="right num">${numberFmt(r.price)}</td>
         <td class="right num">${volumeCell(r)}</td>
         <td class="right num">${fundingCell(r)}</td>
-        <td class="right num ${classes(r.dif)}">${r.dif >= 0 ? '+' : ''}${numberFmt(r.dif)}</td>
-        <td class="right num ${classes(r.dif_pct)}">${r.dif_pct >= 0 ? '+' : ''}${r.dif_pct.toFixed(5)}%</td>
         <td>${badge(r,Math.abs(r.dif_pct)<=t)}</td>
         <td>${trend}</td>
         <td class="muted">${status}</td>
