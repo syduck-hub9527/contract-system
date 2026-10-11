@@ -87,17 +87,6 @@
     footer b{color:#bfcedf}
     @media(max-width:1050px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{margin-left:0}.page{padding:22px 16px}}
     @media(max-width:620px){header{flex-direction:column}.livebar{width:100%;justify-content:space-between}.cards{gap:8px}.card{padding:14px}.card-value{font-size:27px}.surface-top{padding:16px 12px}.tabs{width:100%}.tab{flex-grow:1;padding:8px 7px}.page{padding:17px 10px}h1{font-size:22px}.filters{gap:12px}}
-    .research{margin-bottom:22px;padding:22px;border:1px solid #35465e;border-radius:16px;background:linear-gradient(135deg,#152337,#101a28)}
-    .research-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
-    .research h2{font-size:20px}.research p{color:var(--muted);font-size:13px;line-height:1.7;margin:10px 0}
-    .research-form{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}.research-form label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
-    .research-form input,.research-form select{background:#0c1522;border:1px solid #35465e;color:var(--text);padding:9px;border-radius:7px;width:115px}
-    .research-form input.wide{width:310px;max-width:75vw}.research button{border:0;background:var(--gold);color:#192231;padding:10px 17px;border-radius:8px;font-weight:700;cursor:pointer;align-self:end}
-    .research button:disabled{opacity:.5;cursor:wait}.research-status{padding:12px;background:#0c1522;border-radius:8px;color:#d2dce9;font-size:13px;line-height:1.7}
-    .research-summary{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}.research-summary>div{flex:1;min-width:160px;background:#0d1725;padding:14px;border-radius:10px;font-size:12px;color:var(--muted)}
-    .research-summary strong{display:block;color:var(--text);font-size:22px;margin:7px 0}.research .scroll{margin:15px 0;border:1px solid #2a3a50;border-radius:8px}
-    .research table{min-width:900px}.research details{font-size:13px;color:var(--muted);margin:12px 0}.research summary{cursor:pointer;color:#d2dce9}
-    .research .note{color:#e8c87f}.research code{color:#d2dce9}.research .empty-note{padding:18px;color:var(--muted);font-size:13px}
   </style>
 </head>
 <body>
@@ -122,34 +111,6 @@
     <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
     <div class="card"><div class="card-name">已确认金叉 / 死叉 <span class="symbol">✓</span></div><div class="card-value" id="m-confirmed"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">最近5分钟的收盘信号</div></div>
   </div>
-  <section class="research" aria-label="交叉前概率研究">
-    <div class="research-head"><h2>交叉前 · 概率研究</h2><span class="signal near">研究版 · 无自动下单</span></div>
-    <p>使用上一根已收盘5分钟K线识别接近零轴且向零轴靠近的候选。分别估计<b>下一根收盘交叉</b>与<b>下一根开盘进场、按指定规则退出后的净盈利</b>概率。当前盘中价格进场不适用这些概率。</p>
-    <form id="research-form" class="research-form">
-      <label>USDT永续合约（最多8个）<input id="r-symbols" class="wide" value="BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT" required/></label>
-      <label>每币历史K线数<input id="r-bars" type="number" min="1000" max="20000" step="1000" value="10000" required/></label>
-      <label>近零阈值 %<input id="r-near" type="number" min="0.001" max="0.2" step="0.001" value="0.020" required/></label>
-      <label>止损 ATR倍数<input id="r-stop" type="number" min="0.5" max="5" step="0.1" value="1" required/></label>
-      <label>止盈 ATR倍数<input id="r-target" type="number" min="0.5" max="8" step="0.1" value="1.5" required/></label>
-      <label>最多持仓K线数<input id="r-horizon" type="number" min="1" max="24" step="1" value="6" required/></label>
-      <label>单边手续费 bps<input id="r-fee" type="number" min="0" max="30" step="0.1" value="5" required/></label>
-      <label>单边滑点 bps<input id="r-slip" type="number" min="0" max="50" step="0.1" value="2" required/></label>
-      <button id="r-start" type="submit">运行历史验证</button>
-    </form>
-    <p class="note">1 bps = 0.01%。手续费5 bps和滑点2 bps仅为可调整假设，请填写你的实际费率。历史资金费按实际费率、K线开盘价近似名义价值计入。未模拟订单簿、强平或保证金，止损可能超出预算。</p>
-    <div id="r-status" class="research-status" role="status">尚未验证：行情载入后运行。样本不足时不显示概率。</div>
-    <div id="r-report"></div>
-    <h3 style="font-size:15px;margin-top:24px">当前交叉前候选</h3>
-    <div class="scroll"><table><thead><tr><th>交易对 / 方向</th><th>观察收盘时间</th><th>参考价 / 交叉触发价</th><th>下根收盘交叉概率</th><th>规则下净盈利概率</th><th>同概率区间测试</th><th>测试均值 / 结论</th></tr></thead><tbody id="r-candidates"></tbody></table><div id="r-empty" class="empty-note">完成验证后显示候选；不满足条件时保持空仓观察。</div></div>
-    <form id="risk-form" class="research-form">
-      <label>参考仓位 · 候选合约<select id="risk-symbol"><option value="">暂无候选</option></select></label>
-      <label>账户权益 USDT<input id="risk-equity" type="number" min="1" step="1" value="10000" required/></label>
-      <label>单笔风险预算 %<input id="risk-pct" type="number" min="0.01" max="2" step="0.01" value="0.25" required/></label>
-      <button type="submit">计算参考仓位</button>
-    </form>
-    <div id="risk-result" class="research-status">基于观察时的收盘参考价和ATR计算；不是当前价下单数量，也不代表允许交易。</div>
-    <details><summary>概率如何验证、何时停止显示？</summary><p>所有币种共用时间边界：最早60%时间训练、中间20%校准、最后20%独立测试，剔除结果窗口跨边界的样本；同币候选持仓窗口不重叠。训练≥200、校准≥80、测试≥80，且各段正负两类各≥15才拟合。样本外Brier须优于训练期固定概率基线；所在测试概率区间≥30例且校准误差≤15个百分点才展示。区间是测试样本比例的描述性95% Wilson区间，未校正币种与时间相关性，不是下一笔概率置信区间。过期行情、超出训练分布、重新验证中或验证超过24小时停止展示。改变参数即为新实验；不要反复挑选最好看的测试结果。</p></details>
-  </section>
   <section class="surface">
     <div class="surface-top">
       <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
@@ -237,7 +198,7 @@
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
-    if ($('online').checked && !row.fresh) return false;
+    if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
     if (filter === 'near') return Math.abs(row.dif_pct) <= t;
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
@@ -295,11 +256,11 @@
     }
     const now = state.server_time;
     $('tbody').innerHTML = filtered.map((r) => {
-      const stale = !r.fresh;
-      const active = r.fresh;
+      const stale = !r.ws_connected || r.resync_pending;
+      const active = now - r.updated_at <= 90 * 1000 && r.ws_connected && !r.resync_pending;
       const link = r.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(r.symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(r.symbol)}`;
       const trend = r.above200 ? '<span class="pos trend">↑ 上方</span>' : '<span class="neg trend">↓ 下方</span>';
-      const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : '行情过期/断线';
+      const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : stale ? '连接中' : fmtTime(r.updated_at);
       return `<tr class="${stale ? 'stale' : ''}">
         <td class="name">${escape(r.symbol)}</td>
         <td><span class="market ${r.market==='CM'?'cm':''}">${r.market === 'CM' ? '币本位' : 'U本位'}</span></td>
@@ -322,18 +283,12 @@
       latest = await response.json();
       failed = false;
       render();
-      renderCandidates();
     } catch(e) {
       failed = true;
       $('live-dot').classList.add('error');
       $('live-dot').classList.remove('online');
       $('connection').textContent = '监控服务连接中断';
       $('refresh').textContent = `上次数据可能已过期：${e.message}`;
-      $('r-candidates').innerHTML = '';
-      $('r-empty').style.display = '';
-      $('r-empty').textContent = '本地行情服务断开，暂停显示概率。';
-      $('risk-symbol').innerHTML = '<option value="">行情服务断开</option>';
-      $('risk-result').textContent = '行情服务断开，之前的仓位估算已过期。';
     } finally { pending = false; }
   }
   document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => {
@@ -345,113 +300,11 @@
     $(id).addEventListener('input', render);
     $(id).addEventListener('change', render);
   });
-  let researchState = null;
-  let researchPending = false;
-  let hydrated = false;
-  let lastReportKey = '';
-  let lastRisk = null;
-  const pct = v => Number.isFinite(v) ? (v * 100).toFixed(1) + '%' : '—';
-  const fullTime = ts => ts ? new Date(ts).toLocaleString('zh-CN',{hour12:false}) : '—';
-  async function apiPost(path, data) {
-    const response = await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:AbortSignal.timeout(12000)});
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.error || body.message || `HTTP ${response.status}`);
-    return body;
-  }
-  function renderCandidates() {
-    if (!latest) return;
-    const candidates = (latest.rows || []).filter(r => r.fresh && r.research && r.research.eligible);
-    if (lastRisk && !candidates.some(r => r.symbol === lastRisk.symbol && r.research.observation === lastRisk.observation)) {
-      $('risk-result').textContent = '候选或观察时间已变化，之前的仓位估算已过期，请重新计算。';
-      lastRisk = null;
-    }
-    $('r-candidates').innerHTML = candidates.map(r => {
-      const p = r.research;
-      const evidence = p.sample_count ? `${p.sample_count}例 · 实际比例区间 ${pct(p.interval?.[0])}—${pct(p.interval?.[1])}` : '暂无法可靠估计';
-      const conclusion = p.win_probability == null ? '证据不足，仅观察' : p.positive_expectancy ? '该区间历史均值为正，仍非交易许可' : '该区间历史均值非正，拒绝据此入场';
-      return `<tr><td class="name">${escape(r.symbol)}<br><span class="${p.direction===1?'pos':'neg'}">${p.direction===1?'金叉前 / 多':'死叉前 / 空'}</span></td><td>${escape(fullTime(p.observation))}</td><td>${numberFmt(p.reference_price)}<br>触发 ${numberFmt(p.trigger)}</td><td title="${escape(p.cross_note || p.reason)}">${pct(p.cross_probability)}</td><td title="${escape(p.win_note || p.reason)}">${pct(p.win_probability)}</td><td>${escape(evidence)}</td><td>${pct(p.mean_net)}<br><span class="muted">${conclusion}</span></td></tr>`;
-    }).join('');
-    $('r-empty').style.display = candidates.length ? 'none' : '';
-    $('r-empty').textContent = '没有新鲜且满足交叉前条件的已验证合约；未验证、不同市场或已交叉的合约不参与。';
-    const previous = $('risk-symbol').value;
-    const options = candidates.map(r => `<option value="${escape(r.symbol)}">${escape(r.symbol)}</option>`).join('');
-    $('risk-symbol').innerHTML = options || '<option value="">暂无候选</option>';
-    if (candidates.some(r => r.symbol === previous)) $('risk-symbol').value = previous;
-  }
-  function renderResearch() {
-    const state = researchState;
-    if (!state) return;
-    $('r-start').disabled = state.phase === 'running';
-    $('r-status').textContent = `${state.message} · ${state.progress}%${state.finished_at ? ' · 上次完成 '+fullTime(state.finished_at) : ''}`;
-    const report = state.report;
-    if (!report || !report.split) { $('r-report').innerHTML = ''; return; }
-    const reportKey = String(state.finished_at) + JSON.stringify(report);
-    if (reportKey === lastReportKey) return;
-    lastReportKey = reportKey;
-    const metric = (title, result) => `<div>${title}<strong>${pct(result.mean_net)}</strong>每笔名义仓位净收益均值 · ${result.n}笔<br>胜率 ${pct(result.win_rate)} · 盈利因子 ${result.profit_factor == null?'—':result.profit_factor.toFixed(2)}</div>`;
-    const coverage = Object.entries(report.coverage || {}).map(([symbol,c]) => `${symbol}: ${c.bars}根 / ${c.samples}例 / 缺口${c.gaps} / ${fullTime(c.start)}—${fullTime(c.end)}`).join('；');
-    const settings = report.settings;
-    let content = `<p>本次规则：近零 ${settings.near_pct}% · 止损 ${settings.stop_atr} ATR · 止盈 ${settings.target_atr} ATR · 最多 ${settings.horizon}根 · 单边手续费/滑点 ${settings.fee_bps}/${settings.slippage_bps} bps。训练 ${report.split.train} / 校准 ${report.split.calibration} / 测试 ${report.split.test}例。</p>`;
-    content += '<div class="research-summary">'+metric('测试：所有提前候选',report.early)+metric('测试：随后确实交叉的提前候选',report.paired_early)+metric('测试：相同候选等待交叉确认进场',report.confirmed)+'</div>';
-    content += '<p>以上不是账户收益或最大回撤；各币种独立模拟，没有组合仓位管理。等待确认比较只覆盖下一根确实交叉的同一组候选。</p>';
-    for (const [key,m] of Object.entries(report.models)) {
-      const title = key === 'cross' ? '交叉概率模型' : '净盈利概率模型';
-      if (!m.available) { content += `<p>${title}：${escape(m.reason)}</p>`; continue; }
-      content += `<details><summary>${title} · Brier ${m.brier.toFixed(4)} / 基线 ${m.baseline_brier.toFixed(4)} · ${m.beats_baseline?'优于基线':'未优于基线，停止显示概率'}</summary><div class="scroll"><table><thead><tr><th>预测区间</th><th>测试样本</th><th>平均预测</th><th>实际比例</th><th>描述性95%区间</th></tr></thead><tbody>`;
-      content += m.bins.map(b => `<tr><td>${pct(b.low)}—${pct(b.high)}</td><td>${b.n}</td><td>${pct(b.predicted)}</td><td>${pct(b.observed)}</td><td>${b.interval?pct(b.interval[0])+'—'+pct(b.interval[1]):'—'}</td></tr>`).join('');
-      content += '</tbody></table></div></details>';
-    }
-    content += `<details><summary>历史覆盖与数据限制</summary><p>${escape(coverage)}</p><p>${escape(report.execution)}</p><p>${escape(report.warning)}</p></details>`;
-    if (report.errors?.length) content += `<p class="note">部分合约未纳入：${escape(report.errors.join('；'))}</p>`;
-    $('r-report').innerHTML = content;
-  }
-  async function pollResearch() {
-    if (researchPending) return;
-    researchPending = true;
-    try {
-      const response = await fetch('/dif-api/research',{cache:'no-store',signal:AbortSignal.timeout(7000)});
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      researchState = await response.json();
-      if (!hydrated && researchState.phase === 'done') {
-        const s = researchState.settings;
-        $('r-symbols').value = s.symbols.join(',');
-        for (const [id,key] of [['bars','bars'],['near','near_pct'],['stop','stop_atr'],['target','target_atr'],['horizon','horizon'],['fee','fee_bps'],['slip','slippage_bps']]) $('r-'+id).value = s[key];
-      }
-      hydrated = true;
-      renderResearch();
-    } catch(e) { $('r-status').textContent = '验证状态暂不可用：'+e.message; }
-    finally { researchPending = false; }
-  }
-  $('research-form').addEventListener('submit',async e => {
-    e.preventDefault();
-    $('r-start').disabled = true;
-    hydrated = true;
-    try {
-      const data = {symbols:$('r-symbols').value};
-      for (const [id,key] of [['bars','bars'],['near','near_pct'],['stop','stop_atr'],['target','target_atr'],['horizon','horizon'],['fee','fee_bps'],['slip','slippage_bps']]) data[key] = Number($('r-'+id).value);
-      researchState = await apiPost('/dif-api/research/start',data);
-      renderResearch();
-      $('risk-result').textContent = '重新验证中，旧仓位估算已过期。';
-      lastRisk = null;
-      await poll();
-    } catch(err) { $('r-status').textContent = err.message; $('r-start').disabled = false; }
-  });
-  $('risk-form').addEventListener('submit',async e => {
-    e.preventDefault();
-    try {
-      const r = await apiPost('/dif-api/research/position',{symbol:$('risk-symbol').value,equity:Number($('risk-equity').value),risk_pct:Number($('risk-pct').value)});
-      lastRisk = {symbol:r.symbol,observation:r.observation};
-      $('risk-result').textContent = `${r.symbol} · 观察 ${fullTime(r.observation)} · 参考价 ${numberFmt(r.reference_price)} · 风险预算 ${numberFmt(r.risk_budget)} USDT · 名义仓位 ${numberFmt(r.notional)} USDT · 数量 ${numberFmt(r.quantity)} · 止损 ${numberFmt(r.stop)} / 止盈 ${numberFmt(r.target)}。${r.note}`;
-    } catch(err) { $('risk-result').textContent = err.message; }
-  });
   $('now').textContent = fmtTime(Date.now());
   setInterval(() => { $('now').textContent = fmtTime(Date.now()); }, 1000);
   poll();
-  pollResearch();
   setInterval(poll, 2000);
-  setInterval(pollResearch, 3000);
 })();
 </script>
 </body>
 </html>
-
