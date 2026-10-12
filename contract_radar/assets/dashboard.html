@@ -36,7 +36,6 @@
     .surface-top{padding:20px 21px 18px}
     .title-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     h2{margin:0;font-size:17px;font-weight:750;letter-spacing:-.1px}
-    .hint{color:var(--muted);font-size:12px}
     .filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
     .tabs{display:flex;gap:3px;flex-wrap:wrap;background:#0c1420;border-radius:10px;padding:4px;border:1px solid var(--stroke)}
     .tab{border:0;border-radius:7px;color:#a8b5c6;background:transparent;padding:9px 12px;font-size:12px;font-weight:650;white-space:nowrap}
@@ -50,8 +49,6 @@
 .reset{background:#263248;color:#c9d4e3;border:1px solid #344156;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:650;cursor:pointer}
 .reset:hover{color:#fff}
     select:focus,input:focus{border-color:#d4a34c}
-    .check{display:flex;align-items:center;gap:7px;color:#acb9cb;font-size:12px;cursor:pointer;white-space:nowrap}
-    .check input{accent-color:#f3bb48}
     .infobar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px;padding:11px 21px;background:#101827;border-top:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
     .infobar b{color:var(--text);font-weight:750}
     .spin{display:inline-block;width:10px;height:10px;border:2px solid #546681;border-top-color:var(--gold);border-radius:50%;animation:rotate 1s linear infinite;vertical-align:-1px;margin-right:6px}
@@ -82,11 +79,8 @@
     .empty-icon{font-size:34px;margin-bottom:9px}
     .progress-wrap{height:3px;background:#1a2635}
     .progress{height:3px;width:0;background:linear-gradient(90deg,#aa781f,#ffd16d);transition:width .5s ease}
-    .bottombar{padding:13px 19px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;color:#8797ab;font-size:11px;border-top:1px solid var(--stroke)}
     .warning{margin-bottom:14px;background:#3a2920;border:1px solid #75533e;border-radius:11px;padding:13px 16px;color:#f6caab;font-size:12px;display:none}
     .warning.show{display:block}
-    footer{margin-top:20px;color:#7f8ea4;font-size:12px;line-height:1.8;display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
-    footer b{color:#bfcedf}
     @media(max-width:1050px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{margin-left:0}.page{padding:22px 16px}}
     @media(max-width:620px){header{flex-direction:column}.livebar{width:100%;justify-content:space-between}.cards{gap:8px}.card{padding:14px}.card-value{font-size:27px}.surface-top{padding:16px 12px}.tabs{width:100%}.tab{flex-grow:1;padding:8px 7px}.page{padding:17px 10px}h1{font-size:22px}.filters{gap:12px}}
   </style>
@@ -115,7 +109,7 @@
   </div>
   <section class="surface">
     <div class="surface-top">
-      <div class="title-row"><h2>合约信号监控</h2><div class="hint">按最近更新时间由新到旧排序 · 自动刷新无需手动操作</div></div>
+      <div class="title-row"><h2>合约信号监控</h2></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
           <button class="tab active" data-filter="live-golden">盘中金叉</button>
@@ -131,10 +125,6 @@
           <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
         </div>
       </div>
-      <div class="filters" style="margin-top:13px">
-        <label class="check"><input type="checkbox" id="above200"/> 仅看价格在EMA200上方</label>
-        <label class="check"><input type="checkbox" id="online"/> 仅看已连通实时行情</label>
-      </div>
     </div>
     <div class="infobar"><span><span id="loading"></span><span id="count">等待加载...</span></span><span id="refresh">行情更新时间 —</span></div>
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
@@ -145,12 +135,7 @@
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
     </div>
-    <div class="bottombar"><div>盘中信号会变化或消失；<b>确认金叉/死叉</b> 仅在5分钟K线收盘后产生。</div><div>EMA21斜率 = 每根5分钟K线EMA21的变化百分比；与此前5根K线均值差异过大即提示急拉/急跌</div></div>
   </section>
-  <footer>
-    <span><b>只读行情工具</b> · 不需要API Key · 不会下单 · 非投资建议</span>
-    <span>币安公开REST + WebSocket · 每2秒更新页面 · 若断网请观察连接状态</span>
-  </footer>
 </div>
 <script>
 (() => {
@@ -252,8 +237,6 @@
   function matching(row, t) {
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
-    if ($('above200').checked && !row.above200) return false;
-    if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
     if (filter === 'slope-up') return slopeSignal(row, t) === 'up';
     if (filter === 'slope-down') return slopeSignal(row, t) === 'down';
     if (filter === 'live-golden') return row.live_cross === 'golden';
@@ -350,7 +333,7 @@
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b===button));
     render();
   }));
-  ['market','slope-mult','slope-min','query','above200','online'].forEach(id => {
+  ['market','slope-mult','slope-min','query'].forEach(id => {
     $(id).addEventListener('input', render);
     $(id).addEventListener('change', render);
   });
