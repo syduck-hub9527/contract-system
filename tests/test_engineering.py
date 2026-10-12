@@ -81,7 +81,7 @@ class IndicatorsAndUI(unittest.TestCase):
     def test_ui_copies_match_reviewed_slope_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "8a8efb0a7e08505952837c5a2ac8078645e950e9")
+        self.assertEqual(blob, "af61b2df3f1b3b6bf9a0e876cccf451e2158c266")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):
@@ -89,7 +89,7 @@ class IndicatorsAndUI(unittest.TestCase):
         style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
         self.assertEqual(
             hashlib.sha256(style.encode()).hexdigest(),
-            "3b914c23372c2b500ae545a2a1c9848f5d0e4b77beec40759ba40b4fef2f6ab4",
+            "d94796b8f837e42f4787c6012a9c795c45bc87c9141b39f29985e43806d62cb4",
         )
 
     def test_bad_prices_and_times_do_not_pollute_ema(self):

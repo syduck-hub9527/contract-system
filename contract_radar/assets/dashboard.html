@@ -42,13 +42,11 @@
     .tab{border:0;border-radius:7px;color:#a8b5c6;background:transparent;padding:9px 12px;font-size:12px;font-weight:650;white-space:nowrap}
     .tab.active{background:#263248;color:#fff;box-shadow:0 1px 4px #0004}
     .tab:hover:not(.active){background:#1a2738}
-    .controls{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;margin-left:auto}
+    .controls{display:flex;align-items:center;gap:9px 14px;flex-wrap:wrap;margin-left:auto}
     .control{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
     .control select,.control input[type=number],.search{background:#0e1724;color:var(--text);border:1px solid #344156;border-radius:8px;outline:0;padding:9px 10px;font-size:12px}
     .control input[type=number]{width:82px;text-align:right;font-variant-numeric:tabular-nums}
-    .search{width:142px}
-.stack{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-.threshold-row{display:flex;align-items:center;gap:8px}
+    .search{width:150px}
 .reset{background:#263248;color:#c9d4e3;border:1px solid #344156;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:650;cursor:pointer}
 .reset:hover{color:#fff}
     select:focus,input:focus{border-color:#d4a34c}
@@ -127,16 +125,10 @@
         </div>
         <div class="controls">
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
-          <div class="stack">
-            <div class="threshold-row">
-              <label class="control" title="当前EMA21斜率与此前5根K线平均斜率的差，至少是此前平均斜率幅度的几倍">斜率倍数 <input type="number" id="slope-mult" min="0.5" step="0.5" value="3.0"/> 倍</label>
-            </div>
-            <div class="threshold-row">
-              <label class="control" title="每根5分钟K线上EMA21变化的最小百分比，避免平静行情里的微小波动被放大">最小变化 <input type="number" id="slope-min" min="0.001" step="0.01" value="0.100"/> %</label>
-              <button class="reset" id="threshold-reset" type="button" title="恢复默认：3.0 倍 / 0.100%">重置</button>
-            </div>
-            <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
-          </div>
+          <label class="control" title="当前EMA21斜率与此前5根K线平均斜率的差，至少是此前平均斜率幅度的几倍">斜率倍数 <input type="number" id="slope-mult" min="0.5" step="0.5" value="3.0"/> 倍</label>
+          <label class="control" title="每根5分钟K线上EMA21变化的最小百分比，避免平静行情里的微小波动被放大">最小变化 <input type="number" id="slope-min" min="0.001" step="0.01" value="0.100"/> %</label>
+          <button class="reset" id="threshold-reset" type="button" title="恢复默认：3.0 倍 / 0.100%">重置</button>
+          <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
         </div>
       </div>
       <div class="filters" style="margin-top:13px">
