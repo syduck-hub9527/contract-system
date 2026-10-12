@@ -97,7 +97,7 @@ contract-radar --help
 
 ### 配置与日志
 
-配置优先级：默认值 < `RADAR_*` 环境变量 < 命令行。全部配置通过 `--help` 查看，格式与范围在启动前校验。`.env.example` 展示所有变量；Python启动不会自动读取`.env`。
+配置优先级：默认值 < `RADAR_*` 环境变量 < 命令行。全部配置通过 `--help` 查看，格式与范围在启动前校验。Python启动不会自动读取`.env`。
 
 ```bash
 export RADAR_MARKET=um
@@ -105,13 +105,11 @@ export RADAR_LOG_LEVEL=INFO
 python -m contract_radar --log-file logs/radar.log
 ```
 
-Linux使用环境文件时：
+Linux通过环境变量设置配置：
 
 ```bash
-cp .env.example .env
-set -a
-. ./.env
-set +a
+export RADAR_MARKET=um
+export RADAR_PORT=8765
 python -m contract_radar
 ```
 
@@ -139,19 +137,9 @@ python -m contract_radar
 - `/ready`：至少一个合约有90秒内的新鲜WS行情、未同步且服务未停止时200，否则503；表示有行情可用，不代表所有合约都在线。
 - 初次无法获取合约列表时每30秒后台重试；已有合约后按配置周期刷新。WS断线继续按退避重连。
 
-### Docker
-
-```bash
-docker compose up -d --build
-docker compose logs -f radar
-docker compose down
-```
-
-默认宿主机仅开放 `127.0.0.1:8765`，容器内部监听0.0.0.0；运行用户为非root，文件系统只读，日志自动限额，停止宽限35秒。Compose可从`.env`读取 `RADAR_PORT`（宿主机端口）、`RADAR_MARKET`、`RADAR_LOG_LEVEL`；其余高级项需在compose的environment中显式加入，容器内部端口保持8765。
-
 ### Linux / 阿里云 systemd
 
-`deploy/contract-radar.service` 按 `/home/admin/contract-system` 和admin用户提供模板；按实际安装路径、用户名修改。先创建venv并安装依赖；可复制`.env.example`为`.env`设置配置。若启用文件日志，提前创建logs目录并确保admin可写。
+`deploy/contract-radar.service` 按 `/home/admin/contract-system` 和admin用户提供模板；按实际安装路径、用户名修改。先创建venv并安装依赖；可自行创建`.env`环境文件设置配置。若启用文件日志，提前创建logs目录并确保admin可写。
 
 ```bash
 sudo cp deploy/contract-radar.service /etc/systemd/system/contract-radar.service
@@ -190,7 +178,7 @@ npm install --no-save jsdom@30.1.2
 node tests/test_ui.cjs
 ```
 
-测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。CI在Python3.10/3.12执行检查，单独验证UI交互和容器构建。
+测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，可使用Python3.10或3.12。
 
 模块职责见 [架构与维护说明](docs/architecture.md)。
 
