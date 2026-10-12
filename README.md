@@ -1,5 +1,9 @@
 # 币安合约 5 分钟 DIF 实时监控
 
+多空概率扩展正在按 [开发阶段与G1状态](docs/probability-implementation-status.md) 实施。
+已新增指标与 [离线研究管线](research/README.md)，尚无通过G1的概率模型。
+`RADAR_SIGNALS_ENABLED=0` 为当前默认，保留原页面/API；设1仅采集内部收盘指标。
+
 实时扫描所有**交易中的永续合约**（默认 U 本位 + 币本位），计算：
 
 - `EMA21`、`EMA50`、`EMA200`，均基于**5分钟收盘价**。

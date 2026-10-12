@@ -6,6 +6,8 @@
 |---|---|
 | `binance_live_dif.py` | 兼容启动入口及旧Python导入 |
 | `contract_radar/indicators.py` | Pair、EMA、交叉、EMA21斜率统计（`slope_stats`）、初始化与收盘更新；无网络 |
+| `contract_radar/signals.py` | 收盘OHLCV指标、大周期、统一回放、特征与研究模型导出校验；无网络/新运行时依赖 |
+| `research/` | 可选依赖的离线下载/标签/训练/校准/诊断与单次锁箱工具；不打入运行时包 |
 | `contract_radar/volume.py` | 24小时成交量字段校验、UM/CM单位区分与缓存新鲜度；无网络 |
 | `contract_radar/constants.py` | 原有周期、端点与缺口上限 |
 | `contract_radar/exchange.py` | 线程独立REST会话、全局节流、限流退避、有限重试与取消 |

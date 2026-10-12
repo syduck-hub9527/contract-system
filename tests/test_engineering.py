@@ -68,13 +68,14 @@ class IndicatorsAndUI(unittest.TestCase):
             current.pop("live_updated_at")
             current.pop("recent_dif")
             current.pop("recent_ema21")
+            current.pop("ind")
             self.assertEqual(current, case["expected"], case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
                     update_pair(p, {"t": BASE, "c": str(price), "x": closed}, BASE + I), expected["result"]
                 )
                 self.assertEqual(
-                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21")},
+                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21", "ind")},
                     expected["pair"],
                 )
 

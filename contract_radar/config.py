@@ -27,6 +27,7 @@ class Settings:
     http_timeout: float = 10.0
     log_level: str = "INFO"
     log_file: str = ""
+    signals_enabled: int = 0  # M1/M2 research only; enable after G1 owner review.
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "[::1]")
 
     def __post_init__(self):
@@ -35,6 +36,7 @@ class Settings:
         if self.market not in ("all", "um", "cm"):
             raise ValueError("market 必须为all/um/cm")
         limits = {
+            "signals_enabled": (0, 1),
             "port": (1, 65535),
             "workers": (1, 32),
             "resync_workers": (1, 8),
