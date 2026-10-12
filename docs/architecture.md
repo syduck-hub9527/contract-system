@@ -49,3 +49,5 @@
 项目不保留GitHub Actions CI/CD工作流或Docker部署文件；后续维护不得将它们作为缺失文件恢复，除非用户明确改变这一要求。
 
 方案A（FEATURE_VERSION=2）仅改变内部特征：删除1h两项，EMA200距离替换为EMA50距离；现有EMA200与499根启动逻辑不变。模型/ls/UI仍等待G1；历史v1研究输出不能用于v2。
+
+M0真实报文保存在tests/fixtures/signals/live/2026-10-12；research.check_live离线核对原始SHA256、字段分类和CM张数/币数量。真实零量行不会标作补齐；采集排名UM默认限定USDT，CM使用USD张面值，不新增运行时请求。

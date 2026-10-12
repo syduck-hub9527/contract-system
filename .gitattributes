@@ -1,0 +1,2 @@
+# Preserve captured Windows bytes so their original SHA256 provenance remains valid.
+tests/fixtures/signals/live/**/*.json -text
