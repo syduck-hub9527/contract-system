@@ -67,17 +67,21 @@ class IndicatorsAndUI(unittest.TestCase):
             current = asdict(p)
             current.pop("live_updated_at")
             current.pop("recent_dif")
+            current.pop("recent_ema21")
             self.assertEqual(current, case["expected"], case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
                     update_pair(p, {"t": BASE, "c": str(price), "x": closed}, BASE + I), expected["result"]
                 )
-                self.assertEqual({k: v for k, v in asdict(p).items() if k != "recent_dif"}, expected["pair"])
+                self.assertEqual(
+                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21")},
+                    expected["pair"],
+                )
 
-    def test_ui_copies_match_reviewed_volume_version(self):
+    def test_ui_copies_match_reviewed_slope_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "22252d70aed9c6b16384e9938cd2409938a2fe96")
+        self.assertEqual(blob, "8a8efb0a7e08505952837c5a2ac8078645e950e9")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):

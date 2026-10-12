@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from .constants import INTERVAL_MS, MAX_FILL
 
 RECENT_DIF_COUNT = 11  # 11 个已收盘 DIF 值 = 最近 10 根K线的 10 段变化
+SLOPE_BASE_COUNT = 5  # EMA21 斜率基准：对比此前 5 根已收盘K线的斜率
+RECENT_EMA21_COUNT = SLOPE_BASE_COUNT + 2  # 7 个已收盘 EMA21 = 6 段斜率（含刚收盘的一段）
 
 
 @dataclass
@@ -33,6 +35,7 @@ class Pair:
     resync_pending: bool = False
     last_error: str = ""
     recent_dif: list[float] = field(default_factory=list, repr=False)
+    recent_ema21: list[float] = field(default_factory=list, repr=False)
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -51,6 +54,29 @@ def crossed(before: float, after: float) -> str:
 def had_cross(difs: list[float]) -> bool:
     """相邻已收盘 DIF 之间是否出现过金叉或死叉（与确认信号判断规则相同）。"""
     return any(crossed(a, b) for a, b in zip(difs, difs[1:]))
+
+
+def slope_stats(closed_ema21: list[float], live21: float | None) -> dict:
+    """EMA21 斜率（每根5分钟K线的变化百分比）及其相对前几根K线的变化。
+
+    - 有进行中的K线（live21 不为 None）：当前斜率 = 实时 EMA21 相对上一根已收盘 EMA21；
+      基准 = 此前 5 根已收盘K线的斜率。
+    - 没有进行中的K线：当前斜率 = 最近一根已收盘K线的斜率；基准 = 它之前 5 根。
+    数据不足返回全 None。delta = 当前斜率 - 基准平均斜率；delta > 0 为拉升，< 0 为下跌。
+    """
+    series = list(closed_ema21)
+    if live21 is not None:
+        series.append(live21)
+    if len(series) < SLOPE_BASE_COUNT + 2 or any(v <= 0 for v in series):
+        return {"ema21_slope_pct": None, "ema21_slope_base_pct": None, "ema21_slope_base_abs_pct": None}
+    slopes = [100.0 * (b - a) / a for a, b in zip(series, series[1:])]
+    current = slopes[-1]
+    base = slopes[-1 - SLOPE_BASE_COUNT : -1]
+    return {
+        "ema21_slope_pct": current,
+        "ema21_slope_base_pct": sum(base) / len(base),
+        "ema21_slope_base_abs_pct": sum(abs(v) for v in base) / len(base),
+    }
 
 
 def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None = None) -> Pair:
@@ -94,6 +120,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
     previous_ema200 = None
     previous_dif = None
     difs: list[float] = []
+    ema21s: list[float] = [ema21]
     signal = ""
     signal_at = 0
     for idx, (open_t, close) in enumerate(series[1:], start=1):
@@ -103,6 +130,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         ema200 = ema_update(ema200, close, 200)
         dif = ema21 - ema50
         difs.append(dif)
+        ema21s.append(ema21)
         if previous_dif is not None and idx == len(series) - 1:
             signal = crossed(previous_dif, dif)
             if signal:
@@ -138,6 +166,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         confirmed_at=signal_at,
         live_updated_at=now_ms,
         recent_dif=difs[-RECENT_DIF_COUNT:],
+        recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
     )
 
 
@@ -170,5 +199,6 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.ema21, pair.ema50, pair.ema200 = l21, l50, l200
         pair.closed_dif = l21 - l50
         pair.recent_dif = (pair.recent_dif + [pair.closed_dif])[-RECENT_DIF_COUNT:]
+        pair.recent_ema21 = (pair.recent_ema21 + [l21])[-RECENT_EMA21_COUNT:]
         pair.last_close_t = t
     return "ok"

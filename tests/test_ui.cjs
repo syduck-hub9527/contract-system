@@ -5,8 +5,8 @@ const assert=require('node:assert/strict');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(path.join(__dirname,'../dashboard.html'),'utf8');
 const callbacks=[],errors=[];
-const row=(symbol,time,extra={})=>({symbol,market:'UM',price:100,dif:.001,dif_pct:.001,above200:true,live_cross:'',confirmed_cross:'',updated_at:time,ws_connected:true,resync_pending:false,...extra});
-const state={server_time:1800000000000,phase:'监测',loaded:3,total:3,skipped:0,ws_online:1,ws_expected:1,errors:[],rows:[row('OLDERUSDT',1799999999000),row('BTCUSDT',1800000000000,{live_cross:'golden',confirmed_cross:'death'}),row('ETHUSD_PERP',1799999999990,{market:'CM',above200:false})]};
+const row=(symbol,time,extra={})=>({symbol,market:'UM',price:100,dif:.001,dif_pct:.001,above200:true,live_cross:'',confirmed_cross:'',updated_at:time,ws_connected:true,resync_pending:false,ema21_slope_pct:.5,ema21_slope_base_pct:.01,ema21_slope_base_abs_pct:.02,...extra});
+const state={server_time:1800000000000,phase:'监测',loaded:3,total:3,skipped:0,ws_online:1,ws_expected:1,errors:[],rows:[row('OLDERUSDT',1799999999000),row('BTCUSDT',1800000000000,{live_cross:'golden',confirmed_cross:'death',ema21_slope_pct:.01,ema21_slope_base_pct:.01,ema21_slope_base_abs_pct:.01}),row('ETHUSD_PERP',1799999999990,{market:'CM',above200:false})]};
 const dom=new JSDOM(html,{url:'http://127.0.0.1:8765',runScripts:'dangerously',beforeParse(w){
  w.AbortSignal.timeout=()=>undefined;
  w.setInterval=(fn,delay)=>{callbacks.push([fn,delay]);return callbacks.length;};
@@ -21,12 +21,29 @@ const tick=()=>new Promise(r=>setImmediate(r));
  assert.equal(d.querySelector('[data-filter="live-golden"]').classList.contains('active'),true);
  const click=filter=>d.querySelector(`[data-filter="${filter}"]`).click();
  click('live-golden');assert.deepEqual(names(),['BTCUSDT']);assert.match(d.querySelector('#tbody').textContent,/盘中金叉/);assert.doesNotMatch(d.querySelector('#tbody').textContent,/确认死叉/);
- assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['live-golden','live-death','near','far']);click('live-death');assert.deepEqual(names(),[]);
- const older=state.rows[0];older.dif_pct=0.5;click('near');assert.deepEqual(names(),['ETHUSD_PERP']);const refresh=()=>callbacks.find(x=>x[1]===2000)[0]();state.rows[2].recent_cross=true;await refresh();assert.deepEqual(names(),[]);state.rows[2].recent_cross=false;state.rows[1].live_cross='';await refresh();assert.deepEqual(names(),['BTCUSDT','ETHUSD_PERP']);state.rows[1].live_cross='golden';older.dif_pct=0.5;await refresh();click('far');assert.deepEqual(names(),['OLDERUSDT']);assert.doesNotMatch(d.querySelector('#tbody').textContent,/接近零轴/);
- older.confirmed_cross='golden';await refresh();assert.deepEqual(names(),[]);older.confirmed_cross='';
- older.dif_pct=0.001;await refresh();
- click('far');assert.deepEqual(names(),[]);
- click('near');
+assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['live-golden','live-death','slope-up','slope-down']);click('live-death');assert.deepEqual(names(),[]);
+ assert.equal(d.body.textContent.includes('接近零轴'),false);assert.equal(d.querySelector('#threshold'),null);
+ const older=state.rows[0],eth=state.rows[2],refresh=()=>callbacks.find(x=>x[1]===2000)[0]();
+ // 急拉：当前斜率相对此前5根均值大幅上升；BTC 斜率平稳不触发，按最近更新时间排序
+ click('slope-up');assert.deepEqual(names(),['ETHUSD_PERP','OLDERUSDT']);assert.match(d.querySelector('#tbody').textContent,/EMA21急拉/);assert.doesNotMatch(d.querySelector('#tbody').textContent,/EMA21急跌/);
+ assert.equal(d.querySelector('#m-slope-up').textContent,'2');assert.equal(d.querySelector('#m-slope-down').textContent,'0');
+ click('slope-down');assert.deepEqual(names(),[]);
+ // 急跌：斜率转为大幅负值
+ eth.ema21_slope_pct=-.5;await refresh();assert.deepEqual(names(),['ETHUSD_PERP']);assert.match(d.querySelector('#tbody').textContent,/EMA21急跌/);
+ click('slope-up');assert.deepEqual(names(),['OLDERUSDT']);
+ // 变化量低于“最小变化”(默认0.100%)不提示；高于此前均值幅度倍数才提示
+ eth.ema21_slope_pct=.05;eth.ema21_slope_base_pct=0;await refresh();assert.deepEqual(names(),['OLDERUSDT']);
+ eth.ema21_slope_pct=.5;eth.ema21_slope_base_pct=.01;eth.ema21_slope_base_abs_pct=.2;await refresh();assert.deepEqual(names(),['OLDERUSDT']);  // 变化0.49 < 3×0.2
+ eth.ema21_slope_base_abs_pct=.02;await refresh();assert.deepEqual(names(),['ETHUSD_PERP','OLDERUSDT']);
+ // 数据不足（斜率为 null）时不触发
+ older.ema21_slope_pct=null;older.ema21_slope_base_pct=null;older.ema21_slope_base_abs_pct=null;await refresh();assert.deepEqual(names(),['ETHUSD_PERP']);
+ older.ema21_slope_pct=.5;older.ema21_slope_base_pct=.01;older.ema21_slope_base_abs_pct=.02;await refresh();
+ // 参数可调：倍数/最小变化改变后立即生效
+ const mult=d.querySelector('#slope-mult'),min=d.querySelector('#slope-min'),ev=n=>new dom.window.Event(n);
+ min.value='1';min.dispatchEvent(ev('input'));min.dispatchEvent(ev('change'));assert.deepEqual(names(),[]);assert.equal(dom.window.localStorage.getItem('difradar.slopeMin'),'1');
+ d.querySelector('#threshold-reset').click();assert.equal(mult.value,'3.0');assert.equal(min.value,'0.100');assert.deepEqual(names(),['ETHUSD_PERP','OLDERUSDT']);
+ mult.value='0';mult.dispatchEvent(ev('input'));mult.dispatchEvent(ev('change'));assert.equal(mult.value,'0.5');d.querySelector('#threshold-reset').click();
+ click('live-golden');assert.deepEqual(names(),['BTCUSDT']);assert.doesNotMatch(d.querySelector('#tbody').textContent,/EMA21急/);click('slope-up');
  d.querySelector('#market').value='CM';d.querySelector('#market').dispatchEvent(new dom.window.Event('change'));assert.deepEqual(names(),['ETHUSD_PERP']);
  d.querySelector('#market').value='all';click('live-golden');d.querySelector('#query').value='BTC';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));assert.deepEqual(names(),['BTCUSDT']);
  d.querySelector('#query').value='';d.querySelector('#query').dispatchEvent(new dom.window.Event('input'));
@@ -36,8 +53,8 @@ const tick=()=>new Promise(r=>setImmediate(r));
  Object.assign(btc,{volume:0,volume_unit:'BTC',base_volume:0,quote_volume:0,quote_asset:'USDT',volume_stale:false,volume_updated_at:state.server_time});
  Object.assign(cm,{volume:494109,volume_unit:'张',base_volume:5192.94797687,base_asset:'BTC',quote_volume:null,volume_stale:false,volume_updated_at:state.server_time});
  const poll=callbacks.find(x=>x[1]===2000)[0];await poll();
- // 每个合约位于哪个标签：BTC 是盘中金叉；其余合约属于“接近零轴”
- const rowOf=symbol=>{click(symbol==='BTCUSDT'?'live-golden':'near');return [...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol);};
+ // 每个合约位于哪个标签：BTC 是盘中金叉；其余合约属于“EMA21 急拉”
+ const rowOf=symbol=>{click(symbol==='BTCUSDT'?'live-golden':'slope-up');return [...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol);};
  const cell=symbol=>rowOf(symbol).children[3];
  assert.equal(d.querySelectorAll('thead th').length,9);
  assert.equal(cell('BTCUSDT').textContent.trim(),'0');
@@ -60,21 +77,14 @@ const tick=()=>new Promise(r=>setImmediate(r));
  btc.volume=NaN;await poll();assert.equal(cell('BTCUSDT').textContent,'—');
  btc.volume=12;btc.volume_unit='<img src=x onerror=bad>';btc.quote_asset='" onmouseover="bad';await poll();
  assert.equal(d.querySelectorAll('#tbody img').length,0);assert.equal(cell('BTCUSDT').querySelectorAll('[onmouseover]').length,0);
- // 近期有交叉的合约：不在接近零轴，徽章也不能显示接近零轴，统计卡片同样不计入
- state.rows[2].recent_cross=true;await callbacks.find(x=>x[1]===2000)[0]();
- assert.equal(d.querySelector('#m-near').textContent,'1');
- assert.equal(d.querySelector('#m-zero').textContent,'1 / 1');
- click('far');assert.doesNotMatch([...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent==='ETHUSD_PERP').textContent,/接近零轴/);
- state.rows[2].recent_cross=false;await callbacks.find(x=>x[1]===2000)[0]();
- // 阈值没有上限：输入 3 按 3 生效；低于 0.001 的值夹紧到 0.001
- const th0=d.querySelector('#threshold');th0.value='3';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));
- th0.value='0';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));assert.equal(th0.value,'0.001');th0.value='3';th0.dispatchEvent(new dom.window.Event('input'));th0.dispatchEvent(new dom.window.Event('change'));
- assert.equal(th0.value,'3.000');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'3');
- d.querySelector('#threshold-reset').click();assert.equal(th0.value,'0.050');
- const th=d.querySelector('#threshold');th.value='0.036';th.dispatchEvent(new dom.window.Event('input'));
- assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'0.036');
- d.querySelector('#threshold-reset').click();assert.equal(d.querySelector('#threshold').value,'0.050');assert.equal(dom.window.localStorage.getItem('difradar.threshold'),'0.050');
- const d2=new JSDOM(html,{url:'http://127.0.0.1:8765',runScripts:'dangerously',beforeParse(w){w.localStorage.setItem('difradar.threshold','0.036');w.AbortSignal.timeout=()=>undefined;w.setInterval=()=>0;w.fetch=async()=>({ok:true,json:async()=>state});}});
- await tick();assert.equal(d2.window.document.querySelector('#threshold').value,'0.036');d2.window.close();
+ // 统计卡片：急拉/急跌数量
+ state.rows[2].ema21_slope_pct=-.5;await callbacks.find(x=>x[1]===2000)[0]();
+ assert.equal(d.querySelector('#m-slope-up').textContent,'1');assert.equal(d.querySelector('#m-slope-down').textContent,'1');
+ state.rows[2].ema21_slope_pct=.5;await callbacks.find(x=>x[1]===2000)[0]();
+ // 参数跨刷新保存
+ const m0=d.querySelector('#slope-mult');m0.value='4';m0.dispatchEvent(new dom.window.Event('input'));
+ assert.equal(dom.window.localStorage.getItem('difradar.slopeMult'),'4');d.querySelector('#threshold-reset').click();assert.equal(dom.window.localStorage.getItem('difradar.slopeMult'),'3.0');
+ const d2=new JSDOM(html,{url:'http://127.0.0.1:8765',runScripts:'dangerously',beforeParse(w){w.localStorage.setItem('difradar.slopeMin','0.036');w.AbortSignal.timeout=()=>undefined;w.setInterval=()=>0;w.fetch=async()=>({ok:true,json:async()=>state});}});
+ await tick();assert.equal(d2.window.document.querySelector('#slope-min').value,'0.036');d2.window.close();
  assert.deepEqual(errors,[]);dom.window.close();console.log('Original UI interaction and per-contract volume units, zero, missing, stale and escaping: PASS');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});

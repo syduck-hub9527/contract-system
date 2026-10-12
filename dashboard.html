@@ -111,9 +111,9 @@
   <div class="warning" id="warning"></div>
   <div class="cards">
     <div class="card"><div class="card-name">已载入的永续合约 <span class="symbol">◫</span></div><div class="card-value" id="m-loaded">--</div><div class="card-note" id="m-progress">正在加载交易对</div></div>
-    <div class="card"><div class="card-name">DIF 接近零轴 <span class="symbol">◎</span></div><div class="card-value gold" id="m-near">--</div><div class="card-note" id="m-threshold">|DIF / 价格| ≤ 0.050%</div></div>
+    <div class="card"><div class="card-name">EMA21 斜率急拉 <span class="symbol">↗</span></div><div class="card-value green" id="m-slope-up">--</div><div class="card-note" id="m-slope-rule">斜率变化 ≥ 3.0 倍均值且 ≥ 0.100%</div></div>
     <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
-    <div class="card"><div class="card-name">接近零轴 / 非接近零轴 <span class="symbol">◎</span></div><div class="card-value" id="m-zero"><span class="gold">0</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">0</span></div><div class="card-note">接近零轴：阈值内且无近期交叉；其余为非接近零轴</div></div>
+    <div class="card"><div class="card-name">EMA21 斜率急跌 <span class="symbol">↘</span></div><div class="card-value red" id="m-slope-down">--</div><div class="card-note">相对此前5根K线斜率明显转向或加速</div></div>
   </div>
   <section class="surface">
     <div class="surface-top">
@@ -122,15 +122,18 @@
         <div class="tabs" role="group" aria-label="筛选信号">
           <button class="tab active" data-filter="live-golden">盘中金叉</button>
           <button class="tab" data-filter="live-death">盘中死叉</button>
-          <button class="tab" data-filter="near">接近零轴</button>
-          <button class="tab" data-filter="far">非接近零轴</button>
+          <button class="tab" data-filter="slope-up">EMA21 急拉</button>
+          <button class="tab" data-filter="slope-down">EMA21 急跌</button>
         </div>
         <div class="controls">
           <label class="control">市场 <select id="market"><option value="all">全部合约</option><option value="UM">U本位</option><option value="CM">币本位</option></select></label>
           <div class="stack">
             <div class="threshold-row">
-              <label class="control" title="不同币种价格差异很大，因此以DIF占币价百分比判定接近0">近零阈值 <input type="number" id="threshold" min="0.001" step="0.005" value="0.050"/> %</label>
-              <button class="reset" id="threshold-reset" type="button" title="恢复默认阈值 0.050%">重置</button>
+              <label class="control" title="当前EMA21斜率与此前5根K线平均斜率的差，至少是此前平均斜率幅度的几倍">斜率倍数 <input type="number" id="slope-mult" min="0.5" step="0.5" value="3.0"/> 倍</label>
+            </div>
+            <div class="threshold-row">
+              <label class="control" title="每根5分钟K线上EMA21变化的最小百分比，避免平静行情里的微小波动被放大">最小变化 <input type="number" id="slope-min" min="0.001" step="0.01" value="0.100"/> %</label>
+              <button class="reset" id="threshold-reset" type="button" title="恢复默认：3.0 倍 / 0.100%">重置</button>
             </div>
             <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
           </div>
@@ -150,7 +153,7 @@
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
     </div>
-    <div class="bottombar"><div>盘中信号会变化或消失；<b>确认金叉/死叉</b> 仅在5分钟K线收盘后产生。</div><div>DIF百分比 = (EMA21−EMA50) ÷ 最新价 × 100%</div></div>
+    <div class="bottombar"><div>盘中信号会变化或消失；<b>确认金叉/死叉</b> 仅在5分钟K线收盘后产生。</div><div>EMA21斜率 = 每根5分钟K线EMA21的变化百分比；与此前5根K线均值差异过大即提示急拉/急跌</div></div>
   </section>
   <footer>
     <span><b>只读行情工具</b> · 不需要API Key · 不会下单 · 非投资建议</span>
@@ -206,17 +209,21 @@
     const title = `下次结算 ${next} · 获取时间 ${fmtTime(r.funding_updated_at)}`;
     return `<span class="${cls}" title="${escape(title)}">${sign}${pct.toFixed(4)}%</span>`;
   };
-  const threshold = () => {
-    const t = parseFloat($('threshold').value);
-    return Number.isFinite(t) ? Math.max(.001,t) : .05;
+  const DEFAULT_MULT = 3, DEFAULT_MIN = .1;
+  const slopeMult = () => {
+    const v = parseFloat($('slope-mult').value);
+    return Number.isFinite(v) ? Math.max(.5, v) : DEFAULT_MULT;
   };
+  const slopeMin = () => {
+    const v = parseFloat($('slope-min').value);
+    return Number.isFinite(v) ? Math.max(.001, v) : DEFAULT_MIN;
+  };
+  const threshold = () => ({mult: slopeMult(), min: slopeMin()});
   const classes = (n) => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
   // 确认信号和盘中信号可能同时存在（刚确认死叉、当前K线又反向穿越），
   // 两个都显示，保证徽章与筛选标签一致。
-  // 在“盘中”标签页只显示盘中信号，在“确认”标签页只显示确认信号，
-  // 避免金叉列表里出现“已确认死叉”这类与当前筛选相反的徽章；
-  // 其余标签页（接近零轴/全部）才同时显示两种。
-  const badge = (r, near) => {
+  // 在“盘中”标签页只显示盘中信号；其余标签页同时显示确认信号、盘中信号与斜率信号。
+  const badge = (r, t) => {
     const parts = [];
     const showConfirmed = !filter.startsWith('live-');
     const showLive = !filter.startsWith('confirmed-');
@@ -228,21 +235,35 @@
       if (r.live_cross === 'golden') parts.push('<span class="signal golden">↗ 盘中金叉</span>');
       else if (r.live_cross === 'death') parts.push('<span class="signal death">↘ 盘中死叉</span>');
     }
-    if (!parts.length && near) parts.push('<span class="signal near">◎ 接近零轴</span>');
+    const slope = slopeSignal(r, t);
+    if (slope && (filter.startsWith('slope-') || !filter.startsWith('live-'))) {
+      const title = escape(`当前EMA21斜率 ${r.ema21_slope_pct.toFixed(3)}%/根 · 此前5根平均 ${r.ema21_slope_base_pct.toFixed(3)}%/根`);
+      parts.push(slope === 'up'
+        ? `<span class="signal golden" title="${title}">⇡ EMA21急拉</span>`
+        : `<span class="signal death" title="${title}">⇣ EMA21急跌</span>`);
+    }
     if (!parts.length) return '<span class="signal">—</span>';
     return `<span style="display:inline-flex;gap:6px">${parts.join('')}</span>`;
   };
-  // 接近零轴：DIF 在阈值内，且最近10根已收盘K线无金叉/死叉，当前K线也无盘中金叉/死叉
-  const isNear = (row, t) => Math.abs(row.dif_pct) <= t && !row.recent_cross && !row.live_cross;
-  // 非接近零轴：当前信号列显示“—”的合约，即不接近零轴，且没有盘中或已确认的金叉/死叉
-  const isFar = (row, t) => !isNear(row, t) && !row.live_cross && !row.confirmed_cross;
+  // EMA21 斜率突变：当前K线的EMA21斜率（每5分钟变化 %）减去此前5根K线平均斜率，
+  // 变化量既要不小于“最小变化”，也要不小于此前平均斜率幅度的“倍数”。
+  // 变化量为正 = 重大拉升（up），为负 = 重大下跌（down）。数据不足时返回空。
+  const slopeDelta = (r) => (Number.isFinite(r.ema21_slope_pct) && Number.isFinite(r.ema21_slope_base_pct))
+    ? r.ema21_slope_pct - r.ema21_slope_base_pct : NaN;
+  const slopeSignal = (r, t) => {
+    const delta = slopeDelta(r);
+    if (!Number.isFinite(delta)) return '';
+    const base = Number.isFinite(r.ema21_slope_base_abs_pct) ? r.ema21_slope_base_abs_pct : 0;
+    if (Math.abs(delta) < Math.max(t.min, t.mult * base)) return '';
+    return delta > 0 ? 'up' : 'down';
+  };
   function matching(row, t) {
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if ($('above200').checked && !row.above200) return false;
     if ($('online').checked && (!row.ws_connected || row.resync_pending)) return false;
-    if (filter === 'near') return isNear(row, t);
-    if (filter === 'far') return isFar(row, t);
+    if (filter === 'slope-up') return slopeSignal(row, t) === 'up';
+    if (filter === 'slope-down') return slopeSignal(row, t) === 'down';
     if (filter === 'live-golden') return row.live_cross === 'golden';
     if (filter === 'live-death') return row.live_cross === 'death';
     return true;
@@ -252,19 +273,20 @@
     const state = latest;
     const rows = state.rows || [];
     const t = threshold();
-    // 按“最近更新”时间由新到旧排序；时间相同时，DIF 离零轴更近的在前
+    // 按“最近更新”时间由新到旧排序；时间相同时，斜率变化更大的在前
+    const absDelta = (r) => { const d = slopeDelta(r); return Number.isFinite(d) ? Math.abs(d) : 0; };
     const filtered = rows.filter(r => matching(r, t)).sort((a, b) =>
-      (b.updated_at - a.updated_at) || (Math.abs(a.dif_pct) - Math.abs(b.dif_pct)));
-    const near = rows.filter(r => isNear(r, t)).length;
+      (b.updated_at - a.updated_at) || (absDelta(b) - absDelta(a)));
+    const slopeUp = rows.filter(r => slopeSignal(r, t) === 'up').length;
+    const slopeDown = rows.filter(r => slopeSignal(r, t) === 'down').length;
     const liveGold = rows.filter(r => r.live_cross === 'golden').length;
     const liveDeath = rows.filter(r => r.live_cross === 'death').length;
     $('m-loaded').textContent = state.loaded.toLocaleString();
     $('m-progress').textContent = `已发现 ${state.total} 个 · 跳过 ${state.skipped} 个`;
-    $('m-near').textContent = near;
-    $('m-threshold').textContent = `|DIF / 价格| ≤ ${t.toFixed(3)}%`;
+    $('m-slope-up').textContent = slopeUp;
+    $('m-slope-down').textContent = slopeDown;
+    $('m-slope-rule').textContent = `斜率变化 ≥ ${t.mult.toFixed(1)} 倍均值且 ≥ ${t.min.toFixed(3)}%`;
     $('m-intra').innerHTML = `<span class="green">${liveGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${liveDeath}</span>`;
-    const far = rows.filter(r => isFar(r, t)).length;
-    $('m-zero').innerHTML = `<span class="gold">${near}</span> <span style="color:#657487;font-size:19px">/</span> <span style="color:#a8b5c6">${far}</span>`;
     const isBoot = state.loaded + state.skipped < state.total;
     $('progress').style.width = `${state.total ? 100*(state.loaded+state.skipped)/state.total : 0}%`;
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
@@ -290,7 +312,7 @@
     $('table').style.display = filtered.length ? '' : 'none';
     $('empty').style.display = filtered.length ? 'none' : '';
     if (!filtered.length) {
-      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着扩大近零阈值或切换“全部”。';
+      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着降低斜率倍数/最小变化，或切换其他标签。';
       $('tbody').innerHTML = '';
       return;
     }
@@ -307,7 +329,7 @@
         <td class="right num">${numberFmt(r.price)}</td>
         <td class="right num">${volumeCell(r)}</td>
         <td class="right num">${fundingCell(r)}</td>
-        <td>${badge(r,isNear(r,t))}</td>
+        <td>${badge(r,t)}</td>
         <td>${trend}</td>
         <td class="muted">${status}</td>
         <td><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">打开 ↗</a></td>
@@ -336,24 +358,30 @@
     document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b===button));
     render();
   }));
-  ['market','threshold','query','above200','online'].forEach(id => {
+  ['market','slope-mult','slope-min','query','above200','online'].forEach(id => {
     $(id).addEventListener('input', render);
     $(id).addEventListener('change', render);
   });
-  // 近零阈值跨刷新保存；浏览器禁用存储时静默忽略
-  const THRESHOLD_KEY = 'difradar.threshold';
+  // 斜率参数跨刷新保存；浏览器禁用存储时静默忽略
+  const MULT_KEY = 'difradar.slopeMult', MIN_KEY = 'difradar.slopeMin';
   try {
-    const saved = localStorage.getItem(THRESHOLD_KEY);
-    if (saved !== null && Number.isFinite(parseFloat(saved))) $('threshold').value = saved;
+    const m = localStorage.getItem(MULT_KEY), n = localStorage.getItem(MIN_KEY);
+    if (m !== null && Number.isFinite(parseFloat(m))) $('slope-mult').value = m;
+    if (n !== null && Number.isFinite(parseFloat(n))) $('slope-min').value = n;
   } catch (e) {}
-  $('threshold').addEventListener('input', () => {
-    try { localStorage.setItem(THRESHOLD_KEY, String(threshold())); } catch (e) {}
+  $('slope-mult').addEventListener('input', () => {
+    try { localStorage.setItem(MULT_KEY, String(slopeMult())); } catch (e) {}
   });
-  // 输入过小（低于 0.001）时，失去焦点后夹紧到实际生效的值，避免显示与计算不一致
-  $('threshold').addEventListener('change', () => { $('threshold').value = threshold().toFixed(3); });
+  $('slope-min').addEventListener('input', () => {
+    try { localStorage.setItem(MIN_KEY, String(slopeMin())); } catch (e) {}
+  });
+  // 输入过小时，失去焦点后夹紧到实际生效的值，避免显示与计算不一致
+  $('slope-mult').addEventListener('change', () => { $('slope-mult').value = slopeMult().toFixed(1); });
+  $('slope-min').addEventListener('change', () => { $('slope-min').value = slopeMin().toFixed(3); });
   $('threshold-reset').addEventListener('click', () => {
-    $('threshold').value = '0.050';
-    try { localStorage.setItem(THRESHOLD_KEY, '0.050'); } catch (e) {}
+    $('slope-mult').value = '3.0';
+    $('slope-min').value = '0.100';
+    try { localStorage.setItem(MULT_KEY, '3.0'); localStorage.setItem(MIN_KEY, '0.100'); } catch (e) {}
     render();
   });
   $('now').textContent = fmtTime(Date.now());

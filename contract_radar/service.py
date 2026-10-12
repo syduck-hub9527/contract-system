@@ -16,7 +16,7 @@ from .config import Settings
 from .constants import CANDLE_LIMIT, INTERVAL_MS, MARKETS
 from .exchange import RESTClient, Stopped
 from .funding import Funding, missing_funding
-from .indicators import Pair, crossed, had_cross, initialize_pair, update_pair
+from .indicators import Pair, crossed, had_cross, initialize_pair, slope_stats, update_pair
 from .volume import Volume, missing_volume
 
 LOG = logging.getLogger("difradar")
@@ -583,6 +583,10 @@ class Radar:
                         "updated_at": state.live_updated_at,
                         "current_candle": state.live_t > state.last_close_t,
                         "recent_cross": had_cross(state.recent_dif),
+                        **slope_stats(
+                            state.recent_ema21,
+                            state.live21 if state.live_t > state.last_close_t else None,
+                        ),
                         "ws_connected": state.ws_connected,
                         "resync_pending": state.resync_pending,
                         **self._volume_snapshot(state, now),
