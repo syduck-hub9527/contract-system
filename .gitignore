@@ -16,3 +16,6 @@ node_modules/
 docs/
 # Runtime forecast cache (generated, not source)
 forecast_cache/
+
+# Research archive/sample data (checksum-verified downloads, not source)
+research-data/
