@@ -100,7 +100,7 @@ def initialize_pair(
     if len(complete) < 210:
         raise ValueError("已收盘K线不足210根，无法稳定计算 EMA200")
 
-    # 币安不会返回没有成交的K线。与图表软件一致，用上一根收盘价向前补齐缺失的
+    # 接口可返回零成交量K线，也可能缺失K线；保留已有零量行，只补缺失的
     # K线（中间缺口 + 末尾已经过去但无成交的K线），保证 last_close_t 始终紧贴
     # “当前K线开盘时间 - 5分钟”，WS 推送才不会被误判为掉线缺口。
     series: list[tuple[int, float]] = []
