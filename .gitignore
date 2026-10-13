@@ -19,3 +19,7 @@ forecast_cache/
 
 # Research archive/sample data (checksum-verified downloads, not source)
 research-data/
+
+# Research outputs are large; milestone evidence is committed deliberately
+# with `git add -f` (same pattern as docs/), never by blanket adds
+research-results/
