@@ -18,7 +18,7 @@
 
 ## 启动方法
 
-1. 下载ZIP并解压到一个文件夹。电脑安装 Python 3.10 或更高版本。
+1. 下载ZIP并解压到一个文件夹。电脑安装 Python 3.12 或更高版本。
 2. 在终端（Windows 用 PowerShell 或 CMD）切换到解压后的本文件夹，执行：
 
 ```bash
@@ -83,7 +83,7 @@ python -m pip install -r requirements.txt
 python binance_live_dif.py
 ```
 
-Windows可用 `.venv\Scripts\activate` 激活后执行同样的安装、启动命令。Python最低3.10。
+Windows可用 `.venv\Scripts\activate` 激活后执行同样的安装、启动命令。Python最低3.12。
 
 也支持模块与安装后的命令行入口：
 
@@ -178,7 +178,7 @@ npm install --no-save jsdom@30.1.2
 node tests/test_ui.cjs
 ```
 
-测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，可使用Python3.10或3.12。
+测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，使用Python3.12。
 
 模块职责见 [架构与维护说明](docs/architecture.md)。
 
