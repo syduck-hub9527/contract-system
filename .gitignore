@@ -13,6 +13,6 @@ build/
 dist/
 node_modules/
 .ruff_cache/
-
+docs/
 # Runtime forecast cache (generated, not source)
 forecast_cache/
