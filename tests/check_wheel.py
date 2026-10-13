@@ -24,8 +24,16 @@ with tempfile.TemporaryDirectory() as tmp:
         check=True,
         stdout=subprocess.DEVNULL,
     )
+    script = target / "bin/contract-radar"
+    if script.exists():  # POSIX: extensionless script with shebang, run via the interpreter
+        cmd = [sys.executable, str(script)]
+    else:  # Windows: pip --target emits only the .exe launcher
+        script = target / "bin/contract-radar.exe"
+        if not script.exists():
+            raise SystemExit(f"console script missing under {target / 'bin'}")
+        cmd = [str(script)]
     subprocess.run(
-        [sys.executable, str(target / "bin/contract-radar"), "--help"],
+        [*cmd, "--help"],
         cwd=tmp,
         env=env,
         check=True,
