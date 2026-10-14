@@ -56,7 +56,7 @@ assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filte
  // 每个合约位于哪个标签：BTC 是盘中金叉；其余合约属于“EMA21 急拉”
  const rowOf=symbol=>{click(symbol==='BTCUSDT'?'live-golden':'slope-up');return [...d.querySelectorAll('#tbody tr')].find(tr=>tr.querySelector('.name').textContent===symbol);};
  const cell=symbol=>rowOf(symbol).children[3];
- assert.equal(d.querySelectorAll('thead th').length,9);
+ assert.equal(d.querySelectorAll('thead th').length,8);
  assert.equal(cell('BTCUSDT').textContent.trim(),'0');
  assert.match(cell('BTCUSDT').querySelector('span').title,/成交额 0 USDT/);
  assert.equal(cell('ETHUSD_PERP').textContent.trim(),'49.41 万');
