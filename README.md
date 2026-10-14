@@ -39,7 +39,7 @@ python binance_live_dif.py --port 8888
 
 ## 运行原理
 
-- 启动时：REST 获取永续合约名单，每个合约获取499根5分钟K线，以便计算EMA200，并显示初始化进度。
+- 启动时：REST 获取永续合约名单，每个合约获取580根5分钟K线（v4：按15m EMA50种子残留≤0.05%推导的暖机长度），以便计算EMA200与15m大周期指标，并显示初始化进度。
 - 历史载入期间：逐批建立 WebSocket 订阅（不是反复下载CSV/Excel）。
 - 运行时：币安有新的K线数据就重新计算**盘中临时 DIF**；K线收盘 `x=true` 后再计算确认信号。
 - 浏览器：**每2秒**读取本机实时状态。网页版无需重新打开或按刷新。
@@ -67,7 +67,7 @@ python binance_live_dif.py --port 8888
 
 ## 技术说明
 
-`EMA(L) = EMA_previous + 2/(L+1) * (price - EMA_previous)`，历史上从首根收盘价初始化（部分看盘软件用 SMA 作起点，499 根之后残余差异约 0.7%，对 DIF 影响很小）；K线未收盘时使用最新K线价对上一根**已收盘**EMA作临时计算，**不**把盘中每个tick累加为新EMA。这样的算法可以避免一根K线内多次采样导致EMA计算错误。
+`EMA(L) = EMA_previous + 2/(L+1) * (price - EMA_previous)`，历史上从首根收盘价初始化（部分看盘软件用 SMA 作起点，580 根之后 EMA200 残余差异约 0.3%，对 DIF 影响很小）；K线未收盘时使用最新K线价对上一根**已收盘**EMA作临时计算，**不**把盘中每个tick累加为新EMA。这样的算法可以避免一根K线内多次采样导致EMA计算错误。
 
 
 ## 工程化运行
@@ -123,7 +123,7 @@ python -m contract_radar
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
 | `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量刷新周期，允许30至300秒 |
-| `RADAR_REQUEST_SPACING` | 0.10 | 全局REST间隔/秒 |
+| `RADAR_REQUEST_SPACING` | 0.13 | 全局REST间隔/秒（v4：K线limit≥500对应权重5，0.13s守住2400权重/分上限） |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
 | `RADAR_RESYNC_CAPACITY` | 1000 | 同步队列上限 |

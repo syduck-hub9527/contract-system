@@ -1,7 +1,13 @@
 """Market endpoints and unchanged indicator periods."""
 
 INTERVAL_MS = 5 * 60 * 1000
-CANDLE_LIMIT = 499  # 请求权重 2；给 EMA200 足够长的预热数据
+# v4 warmup fix (owner 2026-10-15): the 15m EMA50 seed residue must be <= 0.05%
+# of its seed, i.e. (1 - 2/(50+1))^M <= 5e-4 -> M = 190 completed 15m bars.
+# A 5m window needs 3*190 + up to 2 leading alignment bars + up to 2 trailing
+# incomplete-bucket bars = 574 minimum; 580 gives a two-bucket margin. The REST
+# limit weight becomes 5 for [500,1000), so request_spacing rises to 0.13s
+# (spec 5.3 maths: 60/0.13*5 = 2307 < 2400 weight/min).
+CANDLE_LIMIT = 580
 WS_BATCH = 75  # 每条连接订阅较少币种，降低单条 WS 消息量
 MAX_FILL = 20000  # 长时间无成交的合约最多向前补齐的K线数，超出则跳过
 SYMBOL_REFRESH_SECONDS = 3600  # 定期刷新合约列表，加入新上市、移除已下架
