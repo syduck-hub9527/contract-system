@@ -28,3 +28,4 @@ research-results/
 # report under research/reports/ are committed
 golden/
 golden-backup-*/
+golden-verify/
