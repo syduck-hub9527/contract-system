@@ -1,15 +1,1 @@
-# Preserve captured Windows bytes so their original SHA256 provenance remains valid.
-tests/fixtures/signals/live/**/*.json -text
-
-# Plan/freeze files are byte-fingerprinted (freeze.json plan_sha256); force LF so
-# worktree bytes always equal committed blob bytes on every platform.
-research/plans/**/*.json text eol=lf
-research/reports/**/*.json text eol=lf
-research/reports/**/*.md text eol=lf
-
-# Evidence artifacts are hashed by the checksum manifests over their as-written
-# (CRLF) bytes. Store blobs verbatim (-text) so blobs == disk == manifest hashes.
-golden/** -text
-golden-v4/** -text
-research-results/skew-v4/** -text
-research-results/discovery-v4/** -text
+# No path-specific byte rules; default git behavior applies to the radar package.

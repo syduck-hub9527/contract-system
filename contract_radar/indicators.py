@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from dataclasses import dataclass, field
 
-from . import signals
 from .constants import INTERVAL_MS, MAX_FILL
-
-LOG = logging.getLogger("difradar")
 
 RECENT_DIF_COUNT = 11  # 11 个已收盘 DIF 值 = 最近 10 根K线的 10 段变化
 SLOPE_BASE_COUNT = 5  # EMA21 斜率基准：对比此前 5 根已收盘K线的斜率
@@ -40,7 +36,6 @@ class Pair:
     last_error: str = ""
     recent_dif: list[float] = field(default_factory=list, repr=False)
     recent_ema21: list[float] = field(default_factory=list, repr=False)
-    ind: signals.IndState | None = field(default=None, repr=False)
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -84,9 +79,7 @@ def slope_stats(closed_ema21: list[float], live21: float | None) -> dict:
     }
 
 
-def initialize_pair(
-    market: str, symbol: str, klines: list, now_ms: int | None = None, *, signals_enabled: int = 1
-) -> Pair:
+def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None = None) -> Pair:
     """历史完整K线建立EMA基准；未收盘K线只计算临时 DIF。"""
     if now_ms is None:
         now_ms = int(time.time() * 1000)
@@ -124,16 +117,6 @@ def initialize_pair(
             raise ValueError("长时间无成交，缺失K线过多")
 
     ema21 = ema50 = ema200 = series[0][1]
-    ind = None
-    signal_rows = {}
-    if signals_enabled:
-        try:
-            signal_rows = {int(r[0]): signals.parse_rest_bar(r) for r in complete}
-            ind = signals.new_state(market, symbol)
-            signals.step_closed(ind, signal_rows[series[0][0]])
-        except Exception as exc:
-            ind = None
-            LOG.debug("%s %s signal initialization degraded: %s", market, symbol, exc)
     previous_ema200 = None
     previous_dif = None
     difs: list[float] = []
@@ -148,13 +131,6 @@ def initialize_pair(
         dif = ema21 - ema50
         difs.append(dif)
         ema21s.append(ema21)
-        if ind is not None:
-            try:
-                bar = signal_rows.get(open_t) or signals.filled_bar(open_t, close)
-                signals.step_closed(ind, bar)
-            except Exception as exc:
-                ind = None
-                LOG.warning("%s %s signal initialization degraded: %s", market, symbol, exc)
         if previous_dif is not None and idx == len(series) - 1:
             signal = crossed(previous_dif, dif)
             if signal:
@@ -191,16 +167,7 @@ def initialize_pair(
         live_updated_at=now_ms,
         recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
-        ind=ind,
     )
-    if ind is not None:
-        try:
-            signals.cache_closed(ind, pair)
-            if is_running_candle:
-                signals.on_tick(ind, signals.parse_rest_bar(curr_rows[-1]))
-        except Exception as exc:
-            pair.ind = None
-            LOG.warning("%s %s signal initialization degraded: %s", market, symbol, exc)
     return pair
 
 
@@ -224,7 +191,6 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
     pair.price = p
     pair.live21, pair.live50, pair.live200 = l21, l50, l200
     pair.live_updated_at = now_ms
-    previous_closed_t = pair.last_close_t
 
     if k.get("x") is True:  # Binance: x=true 表示这一根K线已收盘
         direction = crossed(pair.closed_dif, l21 - l50)
@@ -236,15 +202,4 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.recent_dif = (pair.recent_dif + [pair.closed_dif])[-RECENT_DIF_COUNT:]
         pair.recent_ema21 = (pair.recent_ema21 + [l21])[-RECENT_EMA21_COUNT:]
         pair.last_close_t = t
-    if pair.ind is not None:
-        try:
-            bar = signals.parse_ws_bar(k)
-            signals.on_tick(pair.ind, bar)
-            if k.get("x") is True:
-                signals.on_close(pair.ind, bar, pair, previous_closed_t)
-                if pair.ind.degraded >= 3:
-                    pair.ind = None
-        except Exception:
-            pair.ind = None
-            LOG.exception("%s %s signal update degraded; EMA remains available", pair.market, pair.symbol)
     return "ok"

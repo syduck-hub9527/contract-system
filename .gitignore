@@ -14,19 +14,3 @@ dist/
 node_modules/
 .ruff_cache/
 docs/
-# Runtime forecast cache (generated, not source)
-forecast_cache/
-
-# Research archive/sample data (checksum-verified downloads, not source)
-research-data/
-
-# Research outputs are large; milestone evidence is committed deliberately
-# with `git add -f` (same pattern as docs/), never by blanket adds
-research-results/
-
-# S0 golden reference outputs stay local; only checksums and the measurements
-# report under research/reports/ are committed
-golden/
-golden-v4/
-golden-backup-*/
-golden-verify/

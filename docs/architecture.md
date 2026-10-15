@@ -6,8 +6,6 @@
 |---|---|
 | `binance_live_dif.py` | 兼容启动入口及旧Python导入 |
 | `contract_radar/indicators.py` | Pair、EMA、交叉、EMA21斜率统计（`slope_stats`）、初始化与收盘更新；无网络 |
-| `contract_radar/signals.py` | 收盘OHLCV指标、大周期、统一回放、特征与研究模型导出校验；无网络/新运行时依赖 |
-| `research/` | 可选依赖的离线下载/标签/训练/校准/诊断与单次锁箱工具；不打入运行时包 |
 | `contract_radar/volume.py` | 24小时成交量字段校验、UM/CM单位区分与缓存新鲜度；无网络 |
 | `contract_radar/constants.py` | 原有周期、端点与缺口上限 |
 | `contract_radar/exchange.py` | 线程独立REST会话、全局节流、限流退避、有限重试与取消 |
@@ -47,7 +45,3 @@
 依赖固定在requirements.txt，安装包声明兼容范围；更新后需通过lint、单元/集成、轮子安装和UI哈希/交互检查。检查由本地命令手动执行。
 
 项目不保留GitHub Actions CI/CD工作流或Docker部署文件；后续维护不得将它们作为缺失文件恢复，除非用户明确改变这一要求。
-
-方案A（FEATURE_VERSION=2）仅改变内部特征：删除1h两项，EMA200距离替换为EMA50距离；现有EMA200与499根启动逻辑不变。模型/ls/UI仍等待G1；历史v1研究输出不能用于v2。
-
-M0真实报文保存在tests/fixtures/signals/live/2026-10-12；research.check_live离线核对原始SHA256、字段分类和CM张数/币数量。真实零量行不会标作补齐；采集排名UM默认限定USDT，CM使用USD张面值，不新增运行时请求。

@@ -68,14 +68,13 @@ class IndicatorsAndUI(unittest.TestCase):
             current.pop("live_updated_at")
             current.pop("recent_dif")
             current.pop("recent_ema21")
-            current.pop("ind")
             self.assertEqual(current, case["expected"], case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
                     update_pair(p, {"t": BASE, "c": str(price), "x": closed}, BASE + I), expected["result"]
                 )
                 self.assertEqual(
-                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21", "ind")},
+                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21")},
                     expected["pair"],
                 )
 
@@ -86,7 +85,7 @@ class IndicatorsAndUI(unittest.TestCase):
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):
-        html = (ROOT / "dashboard.html").read_text()
+        html = (ROOT / "dashboard.html").read_text(encoding="utf-8")
         style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
         self.assertEqual(
             hashlib.sha256(style.encode()).hexdigest(),

@@ -199,7 +199,7 @@ class Radar:
         if not isinstance(rows, list):
             raise RuntimeError(f"{symbol}: K线接口返回非列表数据")
         return initialize_pair(
-            market, symbol, rows, now_ms=self.now_ms(), signals_enabled=self.settings.signals_enabled
+            market, symbol, rows, now_ms=self.now_ms()
         )
 
     def _spawn(self, target, name, args=()):
