@@ -5,3 +5,4 @@ tests/fixtures/signals/live/**/*.json -text
 # worktree bytes always equal committed blob bytes on every platform.
 research/plans/**/*.json text eol=lf
 research/reports/**/*.json text eol=lf
+research/reports/**/*.md text eol=lf
