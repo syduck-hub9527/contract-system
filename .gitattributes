@@ -1,2 +1,7 @@
 # Preserve captured Windows bytes so their original SHA256 provenance remains valid.
 tests/fixtures/signals/live/**/*.json -text
+
+# Plan/freeze files are byte-fingerprinted (freeze.json plan_sha256); force LF so
+# worktree bytes always equal committed blob bytes on every platform.
+research/plans/**/*.json text eol=lf
+research/reports/**/*.json text eol=lf
