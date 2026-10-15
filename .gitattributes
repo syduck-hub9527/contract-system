@@ -6,3 +6,10 @@ tests/fixtures/signals/live/**/*.json -text
 research/plans/**/*.json text eol=lf
 research/reports/**/*.json text eol=lf
 research/reports/**/*.md text eol=lf
+
+# Evidence artifacts are hashed by the checksum manifests over their as-written
+# (CRLF) bytes. Store blobs verbatim (-text) so blobs == disk == manifest hashes.
+golden/** -text
+golden-v4/** -text
+research-results/skew-v4/** -text
+research-results/discovery-v4/** -text
