@@ -18,9 +18,10 @@ class Settings:
     ws_batch: int = 75
     refresh_seconds: int = 3600
     volume_refresh_seconds: int = 60
-    # 0.13s keeps the startup burst under 2400 weight/min at klines weight 5
-    # (60/0.13*5 = 2307); see spec 5.3 and the v4 CANDLE_LIMIT increase.
-    request_spacing: float = 0.13
+    # 0.165s keeps the startup burst within the owner-set 1920 weight/min target at
+    # klines weight 5 (60/0.165*5 = 1818, +50 steady-state = 1868 <= 1920); the 2400
+    # hard cap was met at 0.13s but the owner target was not (measured peak 2130).
+    request_spacing: float = 0.165
     connect_timeout: float = 5.0
     read_timeout: float = 15.0
     retry_attempts: int = 3

@@ -5,8 +5,8 @@ INTERVAL_MS = 5 * 60 * 1000
 # of its seed, i.e. (1 - 2/(50+1))^M <= 5e-4 -> M = 190 completed 15m bars.
 # A 5m window needs 3*190 + up to 2 leading alignment bars + up to 2 trailing
 # incomplete-bucket bars = 574 minimum; 580 gives a two-bucket margin. The REST
-# limit weight becomes 5 for [500,1000), so request_spacing rises to 0.13s
-# (spec 5.3 maths: 60/0.13*5 = 2307 < 2400 weight/min).
+# limit weight becomes 5 for [500,1000), so request_spacing rises to 0.165s
+# (owner target: 60/0.165*5 + 50 = 1868 <= 1920 weight/min; measured 2026-10-15).
 CANDLE_LIMIT = 580
 WS_BATCH = 75  # 每条连接订阅较少币种，降低单条 WS 消息量
 MAX_FILL = 20000  # 长时间无成交的合约最多向前补齐的K线数，超出则跳过

@@ -123,7 +123,7 @@ python -m contract_radar
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
 | `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量刷新周期，允许30至300秒 |
-| `RADAR_REQUEST_SPACING` | 0.13 | 全局REST间隔/秒（v4：K线limit≥500对应权重5，0.13s守住2400权重/分上限） |
+| `RADAR_REQUEST_SPACING` | 0.165 | 全局REST间隔/秒（v4：K线limit≥500对应权重5；0.165s使启动突发整分钟最坏1818+50=1868≤所有者目标1920，实测见00文档§3） |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
 | `RADAR_RESYNC_CAPACITY` | 1000 | 同步队列上限 |
