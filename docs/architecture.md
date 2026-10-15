@@ -14,7 +14,6 @@
 | `contract_radar/web.py` | 页面资源、原状态API、健康/就绪、Host限制与并发上限 |
 | `contract_radar/app.py` | 启动、日志、信号与停止流程 |
 | `contract_radar/assets/dashboard.html` | 安装包内根目录UI的精确副本 |
-| `deploy/` | systemd与反向代理模板 |
 
 ## 兼容范围
 
@@ -44,4 +43,4 @@
 
 依赖固定在requirements.txt，安装包声明兼容范围；更新后需通过lint、单元/集成、轮子安装和UI哈希/交互检查。检查由本地命令手动执行。
 
-项目不保留GitHub Actions CI/CD工作流或Docker部署文件；后续维护不得将它们作为缺失文件恢复，除非用户明确改变这一要求。
+项目不保留部署与CI/CD文件（systemd/反向代理模板、GitHub Actions工作流、Docker相关配置）；后续维护不得将它们作为缺失文件恢复，除非用户明确改变这一要求。

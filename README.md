@@ -133,27 +133,9 @@ python -m contract_radar
 - `/ready`：至少一个合约有90秒内的新鲜WS行情、未同步且服务未停止时200，否则503；表示有行情可用，不代表所有合约都在线。
 - 初次无法获取合约列表时每30秒后台重试；已有合约后按配置周期刷新。WS断线继续按退避重连。
 
-### Linux / 阿里云 systemd
+### 远程访问
 
-`deploy/contract-radar.service` 按 `/home/admin/contract-system` 和admin用户提供模板；按实际安装路径、用户名修改。先创建venv并安装依赖；可自行创建`.env`环境文件设置配置。若启用文件日志，提前创建logs目录并确保admin可写。
-
-```bash
-sudo cp deploy/contract-radar.service /etc/systemd/system/contract-radar.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now contract-radar
-sudo systemctl status contract-radar
-sudo journalctl -u contract-radar -f
-```
-
-更新并重启：
-
-```bash
-git pull origin main
-.venv/bin/python -m pip install -r requirements.txt
-sudo systemctl restart contract-radar
-```
-
-通过远程浏览器访问时，可继续现有反向代理；`deploy/nginx.conf.example`提供转发模板，设置上游Host为127.0.0.1以兼容Host检查。直接远程监听需显式设置 `RADAR_HOST=0.0.0.0` 与允许的 `RADAR_ALLOWED_HOSTS`，并按部署环境配置网络访问权限。本项目HTTP服务没有登录认证，默认保持本机访问。
+通过远程浏览器访问时，需显式设置 `RADAR_HOST=0.0.0.0` 与允许的 `RADAR_ALLOWED_HOSTS`，并按网络环境配置访问权限。本项目HTTP服务没有登录认证，默认保持本机访问。
 
 ### 开发与验证
 
