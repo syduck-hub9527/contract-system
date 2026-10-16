@@ -319,6 +319,29 @@ class ApiDocumentation(unittest.TestCase):
         self.assertEqual(set(snap["rows"][0]), documented_row)
 
 
+class GapObservation(unittest.TestCase):
+    def test_note_gap_counts_into_health(self):
+        r = Radar(("UM",))
+        r._note_gap(("UM", "A"))
+        r._note_gap(("UM", "A"))
+        r._note_gap(("UM", "B"))
+        health = r.health()
+        self.assertEqual(health["gap_resyncs"], 3)
+        self.assertEqual(health["gap_resyncs_top"], [["UM:A", 2], ["UM:B", 1]])
+
+    def test_delisted_symbol_counter_is_cleaned(self):
+        r = Radar(("UM",))
+        r.states[("UM", "OLD")] = object()
+        r.symbol_ws[("UM", "OLD")] = "g"
+        r.ws_online["g"] = True
+        r._note_gap(("UM", "OLD"))
+        r._symbols = lambda market: []
+        r._refresh_symbols()
+        self.assertEqual(r.health()["gap_resyncs"], 1)  # 进程级总数不随下架清理
+        self.assertEqual(r.health()["gap_resyncs_top"], [])
+        self.assertFalse(r.gap_resync_counts)
+
+
 class ProcessLifecycle(unittest.TestCase):
     @unittest.skipUnless(__import__("os").name == "posix", "SIGTERM process check on POSIX")
     def test_real_process_handles_sigterm_without_network(self):

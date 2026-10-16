@@ -7,6 +7,7 @@ import logging
 import queue
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -52,6 +53,8 @@ class Radar:
         self.pace = self.client.pace
         self.resync_queue: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=self.settings.resync_capacity)
         self.resync_attempts: dict[tuple[str, str], int] = {}
+        self.gap_resyncs = 0
+        self.gap_resync_counts: Counter[tuple[str, str]] = Counter()
         self.time_offset_ms = 0  # 币安服务器时间 - 本机时间，用于判断K线是否收盘
 
     def now_ms(self) -> int:
@@ -265,6 +268,13 @@ class Radar:
             LOG.warning("停止超时，仍等待请求结束: %s", remaining)
         return not remaining
 
+    def _note_gap(self, key):
+        self.gap_resyncs += 1
+        self.gap_resync_counts[key] += 1
+        LOG.debug(
+            "检测到K线缺口，触发重同步 %s %s（累计 %d 次）", key[0], key[1], self.gap_resync_counts[key]
+        )
+
     def _queue_resync(self, key):
         state = self.states.get(key)
         if not state or self.stop_event.is_set():
@@ -385,6 +395,7 @@ class Radar:
             for key in gone:
                 self.states.pop(key, None)
                 self.symbol_ws.pop(key, None)
+                self.gap_resync_counts.pop(key, None)
         if gone:
             with self.lock:
                 retired = [g for g in self.ws_online if not any(v == g for v in self.symbol_ws.values())]
@@ -467,6 +478,7 @@ class Radar:
                             return
                         result = update_pair(state, k, self.now_ms())
                         if result == "gap":
+                            self._note_gap((market, symbol))
                             self._queue_resync((market, symbol))
                 except Exception as exc:
                     self._error(f"{market} 消息处理失败: {exc}")
@@ -642,4 +654,6 @@ class Radar:
                 "fresh": fresh,
                 "resync_pending": self.resync_queue.qsize(),
                 "workers": len(self._threads),
+                "gap_resyncs": self.gap_resyncs,
+                "gap_resyncs_top": [[f"{m}:{s}", n] for (m, s), n in self.gap_resync_counts.most_common(5)],
             }
