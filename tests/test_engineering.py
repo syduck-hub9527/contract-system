@@ -104,18 +104,18 @@ class IndicatorsAndUI(unittest.TestCase):
             'id="slope-mult"',
             'id="slope-min"',
             'id="min-turnover"',
+            'id="min-volume"',
+            'id="cost"',
             'id="notify"',
             'id="query"',
             "fetch('/dif-api/state'",
-            "'/dif-api/events'",
+            "'/dif-api/events?kind=surge'",
             "difradar.slopeMult",
             "difradar.slopeMin",
         ):
             self.assertIn(hook, html)
         tabs = re.findall(r'data-filter="([\w-]+)"', html)
-        self.assertEqual(
-            tabs, ["live-golden", "live-death", "slope-up", "slope-down", "confirmed-any", "history"]
-        )
+        self.assertEqual(tabs, ["slope-up", "slope-down", "history"])
 
     def test_original_css_is_preserved(self):
         html = UI.read_text(encoding="utf-8")

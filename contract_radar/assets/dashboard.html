@@ -93,7 +93,7 @@
         <div class="mark">∑</div>
         <div><div class="eyebrow">BINANCE FUTURES · LIVE MONITOR</div><h1>DIF 零轴实时雷达</h1></div>
       </div>
-      <div class="sub">5分钟 K线 &nbsp;·&nbsp; DIF = EMA(21) − EMA(50) &nbsp;·&nbsp; EMA(200) 趋势参照</div>
+      <div class="sub">5分钟 K线 &nbsp;·&nbsp; EMA21 斜率急拉 / 急跌 &nbsp;·&nbsp; EMA50 / EMA200 趋势参照</div>
     </div>
     <div class="livebar">
       <div class="live-status"><span class="dot" id="live-dot"></span><span id="connection">准备连接...</span></div>
@@ -104,7 +104,7 @@
   <div class="cards">
     <div class="card"><div class="card-name">已载入的永续合约 <span class="symbol">◫</span></div><div class="card-value" id="m-loaded">--</div><div class="card-note" id="m-progress">正在加载交易对</div></div>
     <div class="card"><div class="card-name">EMA21 斜率急拉 <span class="symbol">↗</span></div><div class="card-value green" id="m-slope-up">--</div><div class="card-note" id="m-slope-rule">斜率变化 ≥ 3.0 倍均值且 ≥ 0.100%</div></div>
-    <div class="card"><div class="card-name">盘中金叉 / 死叉 <span class="symbol">↗</span></div><div class="card-value" id="m-intra"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前5分钟K线尚未收盘</div></div>
+    <div class="card"><div class="card-name">放量 急拉 / 急跌 <span class="symbol">↗</span></div><div class="card-value" id="m-surge-volume"><span class="green">0</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">0</span></div><div class="card-note">当前K线量能 ≥ 此前20根均量的2倍</div></div>
     <div class="card"><div class="card-name">EMA21 斜率急跌 <span class="symbol">↘</span></div><div class="card-value red" id="m-slope-down">--</div><div class="card-note">相对此前5根K线斜率明显转向或加速</div></div>
   </div>
   <section class="surface">
@@ -112,11 +112,8 @@
       <div class="title-row"><h2>合约信号监控</h2></div>
       <div class="filters">
         <div class="tabs" role="group" aria-label="筛选信号">
-          <button class="tab active" data-filter="live-golden">盘中金叉</button>
-          <button class="tab" data-filter="live-death">盘中死叉</button>
-          <button class="tab" data-filter="slope-up">EMA21 急拉</button>
+          <button class="tab active" data-filter="slope-up">EMA21 急拉</button>
           <button class="tab" data-filter="slope-down">EMA21 急跌</button>
-          <button class="tab" data-filter="confirmed-any">已确认交叉</button>
           <button class="tab" data-filter="history">信号记录</button>
         </div>
         <div class="controls">
@@ -125,6 +122,8 @@
           <label class="control" title="每根5分钟K线上EMA21变化的最小百分比，避免平静行情里的微小波动被放大">最小变化 <input type="number" id="slope-min" min="0.001" step="0.01" value="0.100"/> %</label>
           <button class="reset" id="threshold-reset" type="button" title="恢复默认：3.0 倍 / 0.100%">重置</button>
           <label class="control" title="只显示滚动24小时成交额不低于此值的合约（U本位为USDT成交额，币本位按币数量×价格折算为USD；0 表示不过滤）">最低成交额 <input type="number" id="min-turnover" min="0" step="100" value="0"/> 万U</label>
+          <label class="control" title="只显示当前K线量能（到目前为止的成交量 ÷ 此前20根已收盘K线平均成交量）不低于此倍数的信号；0 表示不过滤">最低量能 <input type="number" id="min-volume" min="0" step="0.5" value="0"/> 倍</label>
+          <label class="control" title="开仓加平仓的总成本（手续费、滑点），信号记录里的收益会扣除这部分">往返成本 <input type="number" id="cost" min="0" step="0.01" value="0.10"/> %</label>
           <button class="reset" id="notify" type="button" title="当前标签页出现新信号时发出浏览器通知和提示音">提醒：关</button>
           <input class="search" id="query" placeholder="搜索 BTC、ETH..." aria-label="搜索交易对"/>
         </div>
@@ -134,7 +133,7 @@
     <div class="progress-wrap"><div class="progress" id="progress"></div></div>
     <div class="scroll">
       <table id="table">
-        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。">24h 成交量</th><th class="right" title="最近更新的资金费率（U本位来自标记价格流，约每秒更新；币本位来自 premiumIndex，每60秒获取）；悬停查看下次结算时间。">资金费率</th><th>当前信号</th><th>EMA200</th><th>最近更新</th></tr></thead>
+        <thead><tr><th>交易对</th><th>类型</th><th class="right">最新价格</th><th class="right" title="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。">24h 成交量</th><th class="right" title="最近更新的资金费率（U本位来自标记价格流，约每秒更新；币本位来自 premiumIndex，每60秒获取）；悬停查看下次结算时间。">资金费率</th><th>当前信号</th><th title="最新价相对 EMA50（约4小时方向）与 EMA200（约1天方向）">趋势</th><th>最近更新</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
       <div class="empty" id="empty"><div><div class="empty-icon">⌁</div><div id="empty-text">正在读取币安5分钟K线...</div><div style="margin-top:10px;font-size:12px">首次启动需要获取足够的历史K线计算EMA200</div></div></div>
@@ -145,10 +144,11 @@
 (() => {
   'use strict';
   let latest = null;
-  let filter = 'live-golden';
+  let filter = 'slope-up';
   let failed = false;
   let pending = false;
-  let events = null;                 // /dif-api/events 的最近一次结果（仅“信号记录”页使用）
+  let events = null;                 // /dif-api/events?kind=surge 的最近一次结果（仅“信号记录”页使用）
+  let eventsAt = 0;
   let lastFiltered = [];             // 当前标签页最近一次渲染出的行，用于提醒
   let baseline = null;               // 提醒基线：上一次轮询时当前标签已有的信号
   let notifyOn = false;
@@ -223,11 +223,25 @@
   const bySymbol = (a, b) => (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : a.market < b.market ? -1 : a.market > b.market ? 1 : 0);
   const rowKey = (r) => `${r.market}:${r.symbol}`;
   // 信号首次出现时间：盘中交叉由服务端记录，已确认交叉取K线收盘时间，斜率信号由本页面记录
+  // 信号首次出现时间：由本页面记录（服务端另有独立的信号记录）
   const sinceOf = (r) => {
-    const v = filter.startsWith('live-') ? r.live_cross_since
-      : filter === 'confirmed-any' ? r.confirmed_at
-      : (firstSeen.get(rowKey(r)) || {}).since;
+    const v = (firstSeen.get(rowKey(r)) || {}).since;
     return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const minVolume = () => {
+    const v = parseFloat($('min-volume').value);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const cost = () => {
+    const v = parseFloat($('cost').value);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const volumeTag = (ratio) => Number.isFinite(ratio)
+    ? `<span class="${ratio >= 2 ? 'pos' : 'muted'}" style="font-size:11px" title="当前K线量能：到目前为止的成交量是此前20根已收盘K线平均的 ${ratio.toFixed(2)} 倍">量 ${ratio.toFixed(1)}×</span>`
+    : '<span class="muted" style="font-size:11px" title="量能数据不足">量 —</span>';
+  const trendCell = (above50, above200) => {
+    const side = (v, name) => v === true ? `<span class="pos">${name} ↑</span>` : v === false ? `<span class="neg">${name} ↓</span>` : `<span class="muted">${name} —</span>`;
+    return `<span class="trend">${side(above50, 'EMA50')} <span class="muted">·</span> ${side(above200, 'EMA200')}</span>`;
   };
   const duration = (ms) => {
     if (!Number.isFinite(ms) || ms < 0) return '';
@@ -237,30 +251,14 @@
     return m < 60 ? `${m}分${s % 60}秒` : `${Math.floor(m / 60)}小时${m % 60}分`;
   };
   const pctCell = (v) => Number.isFinite(v) ? `<span class="${classes(v)}">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>` : '<span class="muted">—</span>';
-  // 确认信号和盘中信号可能同时存在（刚确认死叉、当前K线又反向穿越），
-  // 两个都显示，保证徽章与筛选标签一致。
-  // 在“盘中”标签页只显示盘中信号；其余标签页同时显示确认信号、盘中信号与斜率信号。
   const badge = (r, t) => {
-    const parts = [];
-    const showConfirmed = !filter.startsWith('live-');
-    const showLive = !filter.startsWith('confirmed-');
-    if (showConfirmed) {
-      if (r.confirmed_cross === 'golden') parts.push('<span class="signal golden">✓ 已确认金叉</span>');
-      else if (r.confirmed_cross === 'death') parts.push('<span class="signal death">✓ 已确认死叉</span>');
-    }
-    if (showLive) {
-      if (r.live_cross === 'golden') parts.push('<span class="signal golden">↗ 盘中金叉</span>');
-      else if (r.live_cross === 'death') parts.push('<span class="signal death">↘ 盘中死叉</span>');
-    }
     const slope = slopeSignal(r, t);
-    if (slope && (filter.startsWith('slope-') || !filter.startsWith('live-'))) {
-      const title = escape(`当前EMA21斜率 ${r.ema21_slope_pct.toFixed(3)}%/根 · 此前5根平均 ${r.ema21_slope_base_pct.toFixed(3)}%/根`);
-      parts.push(slope === 'up'
-        ? `<span class="signal golden" title="${title}">⇡ EMA21急拉</span>`
-        : `<span class="signal death" title="${title}">⇣ EMA21急跌</span>`);
-    }
-    if (!parts.length) return '<span class="signal">—</span>';
-    return `<span style="display:inline-flex;gap:6px">${parts.join('')}</span>`;
+    if (!slope) return '<span class="signal">—</span>';
+    const title = escape(`当前EMA21斜率 ${r.ema21_slope_pct.toFixed(3)}%/根 · 此前5根平均 ${r.ema21_slope_base_pct.toFixed(3)}%/根`);
+    const tag = slope === 'up'
+      ? `<span class="signal golden" title="${title}">⇡ EMA21急拉</span>`
+      : `<span class="signal death" title="${title}">⇣ EMA21急跌</span>`;
+    return `<span style="display:inline-flex;gap:6px;align-items:center">${tag}${volumeTag(r.volume_ratio)}</span>`;
   };
   // EMA21 斜率突变：当前K线的EMA21斜率（每5分钟变化 %）减去此前5根K线平均斜率，
   // 变化量既要不小于“最小变化”，也要不小于此前平均斜率幅度的“倍数”。
@@ -278,12 +276,11 @@
     if ($('market').value !== 'all' && row.market !== $('market').value) return false;
     if ($('query').value.trim() && !row.symbol.includes($('query').value.trim().toUpperCase())) return false;
     if (!turnoverOk(turnover(row), minTurnover())) return false;
-    if (filter === 'confirmed-any') return !!row.confirmed_cross;
+    const minV = minVolume();
+    if (minV > 0 && !(Number.isFinite(row.volume_ratio) && row.volume_ratio >= minV)) return false;
     if (filter === 'slope-up') return slopeSignal(row, t) === 'up';
     if (filter === 'slope-down') return slopeSignal(row, t) === 'down';
-    if (filter === 'live-golden') return row.live_cross === 'golden';
-    if (filter === 'live-death') return row.live_cross === 'death';
-    return true;
+    return false;
   }
   function render() {
     if (!latest) return;
@@ -305,14 +302,15 @@
     const pool = rows.filter(r => turnoverOk(turnover(r), minT));
     const slopeUp = pool.filter(r => slopeSignal(r, t) === 'up').length;
     const slopeDown = pool.filter(r => slopeSignal(r, t) === 'down').length;
-    const liveGold = pool.filter(r => r.live_cross === 'golden').length;
-    const liveDeath = pool.filter(r => r.live_cross === 'death').length;
+    const loud = (r) => Number.isFinite(r.volume_ratio) && r.volume_ratio >= 2;
+    const loudUp = pool.filter(r => slopeSignal(r, t) === 'up' && loud(r)).length;
+    const loudDown = pool.filter(r => slopeSignal(r, t) === 'down' && loud(r)).length;
     $('m-loaded').textContent = state.loaded.toLocaleString();
     $('m-progress').textContent = `已发现 ${state.total} 个 · 跳过 ${state.skipped} 个`;
     $('m-slope-up').textContent = slopeUp;
     $('m-slope-down').textContent = slopeDown;
     $('m-slope-rule').textContent = `斜率变化 ≥ ${t.mult.toFixed(1)} 倍均值且 ≥ ${t.min.toFixed(3)}%`;
-    $('m-intra').innerHTML = `<span class="green">${liveGold}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${liveDeath}</span>`;
+    $('m-surge-volume').innerHTML = `<span class="green">${loudUp}</span> <span style="color:#657487;font-size:19px">/</span> <span class="red">${loudDown}</span>`;
     const isBoot = state.loaded + state.skipped < state.total;
     $('progress').style.width = `${state.total ? 100*(state.loaded+state.skipped)/state.total : 0}%`;
     $('loading').innerHTML = isBoot ? '<span class="spin"></span>' : '';
@@ -340,7 +338,7 @@
     $('table').style.display = filtered.length ? '' : 'none';
     $('empty').style.display = filtered.length ? 'none' : '';
     if (!filtered.length) {
-      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着降低斜率倍数/最小变化/最低成交额，或切换其他标签。';
+      $('empty-text').textContent = state.loaded === 0 ? '正在加载5分钟历史行情，请查看上方进度...' : '目前没有符合条件的合约；试着降低斜率倍数、最小变化、最低成交额或最低量能，或切换其他标签。';
       $('tbody').innerHTML = '';
       return;
     }
@@ -349,7 +347,7 @@
       const stale = !r.ws_connected || r.resync_pending;
       const active = now - r.updated_at <= 90 * 1000 && r.ws_connected && !r.resync_pending;
       const link = r.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(r.symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(r.symbol)}`;
-      const trend = r.above200 ? '<span class="pos trend">↑ 上方</span>' : '<span class="neg trend">↓ 下方</span>';
+      const trend = trendCell(r.above50, r.above200);
       const status = r.resync_pending ? '同步中' : active ? fmtTime(r.updated_at) : stale ? '连接中' : fmtTime(r.updated_at);
       return `<tr class="${stale ? 'stale' : ''}">
         <td class="name"><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">${escape(r.symbol)}</a></td>
@@ -364,52 +362,71 @@
     }).join('');
   }
   const MAIN_HEAD = $('table').tHead.innerHTML;
-  const HISTORY_HEAD = '<tr><th>信号时间</th><th>交易对</th><th>类型</th><th class="right">信号价格</th>'
-    + '<th class="right" title="信号时的滚动24小时成交额；U本位为USDT，币本位按币数量×价格折算为USD">当时成交额</th>'
-    + '<th class="right">当时资金费率</th><th>信号</th>'
-    + '<th class="right" title="信号K线收盘后第3、6、12根5分钟K线的收盘价相对信号价格的涨跌幅；服务未在线时错过的收盘留空">之后 15m · 30m · 60m</th></tr>';
+  const HISTORY_HEAD = '<tr><th>触发时间</th><th>交易对</th><th>信号</th><th class="right">触发价</th>'
+    + '<th class="right" title="触发时当前K线量能：到那时的成交量 ÷ 此前20根平均">量能</th>'
+    + '<th title="触发时最新价相对 EMA50 / EMA200">趋势</th>'
+    + '<th class="right" title="按信号方向计算（急跌按做空），已扣除往返成本：触发后 5、15、30、60 分钟的收益">之后 5m · 15m · 30m · 60m</th>'
+    + '<th class="right" title="触发后1小时内，按信号方向的最大浮盈 / 最大浮亏（未扣成本）">1小时内 最大顺 / 逆</th></tr>';
+  // 按信号方向换算：急拉按做多、急跌按做空
+  const directed = (e, v) => Number.isFinite(v) ? (e.kind === 'surge_down' ? -v : v) : NaN;
+  const netCell = (e, v, c) => { const d = directed(e, v); return pctCell(Number.isFinite(d) ? d - c : NaN); };
   function renderHistory() {
     const table = $('table');
     if (table.tHead.innerHTML !== HISTORY_HEAD) table.tHead.innerHTML = HISTORY_HEAD;
     const list = (events && Array.isArray(events.events)) ? events.events : [];
-    const market = $('market').value, q = $('query').value.trim().toUpperCase(), minT = minTurnover();
-    const shown = list.filter(e => (market === 'all' || e.market === market)
-      && (!q || String(e.symbol).includes(q)) && turnoverOk(e.turnover, minT));
-    $('count').innerHTML = `信号记录 <b>${shown.length}</b> 条 &nbsp;·&nbsp; 已确认金叉/死叉，最近 500 条`;
+    const market = $('market').value, q = $('query').value.trim().toUpperCase(), minT = minTurnover(), minV = minVolume(), c = cost();
+    const shown = list.filter(e => (e.kind === 'surge_up' || e.kind === 'surge_down')
+      && (market === 'all' || e.market === market)
+      && (!q || String(e.symbol).includes(q)) && turnoverOk(e.turnover, minT)
+      && (minV <= 0 || (Number.isFinite(e.volume_ratio) && e.volume_ratio >= minV)));
+    const sample = shown.map(e => directed(e, e.ret_15m)).filter(Number.isFinite).map(v => v - c);
+    const avg = sample.length ? sample.reduce((a, b) => a + b, 0) / sample.length : NaN;
+    const wins = sample.filter(v => v > 0).length;
+    const summary = sample.length
+      ? ` &nbsp;·&nbsp; 15分钟后扣成本平均 ${pctCell(avg)}，盈利占比 <b>${Math.round(100 * wins / sample.length)}%</b>（样本 ${sample.length}）`
+      : '';
+    $('count').innerHTML = `急拉急跌记录 <b>${shown.length}</b> 条${summary}`;
     table.style.display = shown.length ? '' : 'none';
     $('empty').style.display = shown.length ? 'none' : '';
     if (!shown.length) {
       $('empty-text').textContent = list.length
-        ? '没有符合当前市场、搜索或最低成交额条件的记录。'
-        : '还没有已确认的金叉/死叉记录。记录在服务运行期间累积；启动时加 --data-dir 可跨重启保存。';
+        ? '没有符合当前市场、搜索、最低成交额或最低量能条件的记录。'
+        : '还没有急拉急跌记录。服务端按默认阈值（3.0 倍 / 0.100%）记录；启动时加 --data-dir 可跨重启保存。';
       $('tbody').innerHTML = '';
       return;
     }
     $('tbody').innerHTML = shown.map((e) => {
       const symbol = String(e.symbol);
       const link = e.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(symbol)}`;
-      const at = new Date(e.at).toLocaleString('zh-CN', {hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
-      const kind = e.kind === 'golden' ? '<span class="signal golden">✓ 已确认金叉</span>' : e.kind === 'death' ? '<span class="signal death">✓ 已确认死叉</span>' : '<span class="signal">—</span>';
-      const fundingText = Number.isFinite(e.funding_rate)
-        ? `<span class="${classes(e.funding_rate)}">${e.funding_rate > 0 ? '+' : ''}${(e.funding_rate * 100).toFixed(4)}%</span>`
-        : '<span class="muted">—</span>';
-      const returns = [e.ret_15m, e.ret_30m, e.ret_60m].map(pctCell).join(' · ') + (e.done ? '' : ' <span class="muted" title="还在等待后续K线收盘">…</span>');
+      const at = new Date(e.at).toLocaleString('zh-CN', {hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'});
+      const up = e.kind === 'surge_up';
+      const held = e.held_at_close === true ? '<span class="muted" style="font-size:11px" title="触发所在的K线收盘时信号仍然成立">收盘仍成立</span>'
+        : e.held_at_close === false ? '<span class="muted" style="font-size:11px" title="触发所在的K线收盘时已不满足条件">收盘已回落</span>' : '';
+      const detail = [`触发于K线开盘后 ${Number.isFinite(e.elapsed_s) ? e.elapsed_s : '—'} 秒`,
+        Number.isFinite(e.delta) && Number.isFinite(e.threshold) ? `变化量 ${e.delta.toFixed(3)}% / 门槛 ${e.threshold.toFixed(3)}%（${e.gate === 'mult' ? '由倍数决定' : '由最小变化决定'}）` : '',
+        Number.isFinite(e.turnover) ? `24h成交额 ${compactFmt(e.turnover)}` : '',
+        Number.isFinite(e.funding_rate) ? `资金费率 ${(e.funding_rate * 100).toFixed(4)}%` : ''].filter(Boolean).join(' · ');
+      const tag = up ? '<span class="signal golden">⇡ 急拉</span>' : '<span class="signal death">⇣ 急跌</span>';
+      const returns = [e.ret_5m, e.ret_15m, e.ret_30m, e.ret_60m].map(v => netCell(e, v, c)).join(' · ')
+        + (e.done ? '' : ' <span class="muted" title="还在跟踪中">…</span>');
+      const best = up ? e.high_pct : (Number.isFinite(e.low_pct) ? -e.low_pct : NaN);
+      const worst = up ? e.low_pct : (Number.isFinite(e.high_pct) ? -e.high_pct : NaN);
       return `<tr>
         <td class="muted">${escape(at)}</td>
-        <td class="name"><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">${escape(symbol)}</a></td>
-        <td><span class="market ${e.market==='CM'?'cm':''}">${e.market === 'CM' ? '币本位' : 'U本位'}</span></td>
+        <td class="name" title="${escape(detail)}"><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">${escape(symbol)}</a>${e.market === 'CM' ? ' <span class="muted" style="font-size:11px">币本位</span>' : ''}</td>
+        <td title="${escape(detail)}"><span style="display:inline-flex;gap:6px;align-items:center">${tag}${held}</span></td>
         <td class="right num">${numberFmt(e.price)}</td>
-        <td class="right num">${Number.isFinite(e.turnover) ? compactFmt(e.turnover) : '<span class="muted">—</span>'}</td>
-        <td class="right num">${fundingText}</td>
-        <td>${kind}</td>
+        <td class="right num">${Number.isFinite(e.volume_ratio) ? e.volume_ratio.toFixed(1) + '×' : '<span class="muted">—</span>'}</td>
+        <td>${trendCell(e.above50, e.above200)}</td>
         <td class="right num">${returns}</td>
+        <td class="right num">${pctCell(best)} / ${pctCell(worst)}</td>
       </tr>`;
     }).join('');
   }
   async function loadEvents() {
     try {
-      const response = await fetch('/dif-api/events', {cache: 'no-store', signal: AbortSignal.timeout(7000)});
-      if (response.ok) events = await response.json();
+      const response = await fetch('/dif-api/events?kind=surge', {cache: 'no-store', signal: AbortSignal.timeout(7000)});
+      if (response.ok) { events = await response.json(); eventsAt = Date.now(); }
     } catch (e) {}
   }
   // ---- 新信号提醒：只比较同一标签页相邻两次轮询，切换标签或调整筛选后重新建立基线 ----
@@ -457,7 +474,7 @@
       const response = await fetch('/dif-api/state',{cache:'no-store',signal:AbortSignal.timeout(7000)});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       latest = await response.json();
-      if (filter === 'history') await loadEvents();
+      if (filter === 'history' && Date.now() - eventsAt >= 10000) await loadEvents();  // 记录较大，最多每10秒取一次
       failed = false;
       render();
       checkNotify();
@@ -476,7 +493,7 @@
     render();
     if (filter === 'history') loadEvents().then(render);
   }));
-  ['market','slope-mult','slope-min','query','min-turnover'].forEach(id => {
+  ['market','slope-mult','slope-min','query','min-turnover','min-volume','cost'].forEach(id => {
     const changed = () => { baseline = null; render(); };
     $(id).addEventListener('input', changed);
     $(id).addEventListener('change', changed);
@@ -485,8 +502,17 @@
   try {
     const v = localStorage.getItem('difradar.minTurnover');
     if (v !== null && Number.isFinite(parseFloat(v))) $('min-turnover').value = v;
+    const mv = localStorage.getItem('difradar.minVolume'), cv = localStorage.getItem('difradar.cost');
+    if (mv !== null && Number.isFinite(parseFloat(mv))) $('min-volume').value = mv;
+    if (cv !== null && Number.isFinite(parseFloat(cv))) $('cost').value = cv;
     setNotify(localStorage.getItem('difradar.notify') === '1');
   } catch (e) {}
+  $('min-volume').addEventListener('input', () => {
+    try { localStorage.setItem('difradar.minVolume', String(minVolume())); } catch (e) {}
+  });
+  $('cost').addEventListener('input', () => {
+    try { localStorage.setItem('difradar.cost', String(cost())); } catch (e) {}
+  });
   $('min-turnover').addEventListener('input', () => {
     try { localStorage.setItem('difradar.minTurnover', String(minTurnover() / 1e4)); } catch (e) {}
   });

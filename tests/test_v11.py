@@ -355,6 +355,18 @@ class EventsEndpoint(unittest.TestCase):
             for path in ("/api/events", "/dif-api/events"):
                 with urllib.request.urlopen(url + path) as response:
                     self.assertEqual(set(json.load(response)), {"server_time", "events"})
+            with radar.lock:
+                radar._append_event(
+                    {"market": "UM", "symbol": "A", "kind": "surge_up", "at": 1, "price": 1.0}
+                )
+                radar._append_event({"market": "UM", "symbol": "B", "kind": "golden", "at": 2, "price": 1.0})
+            for query, kinds in (
+                ("?kind=surge", ["surge_up"]),
+                ("?kind=cross", ["golden"]),
+                ("", ["golden", "surge_up"]),
+            ):
+                with urllib.request.urlopen(url + "/dif-api/events" + query) as response:
+                    self.assertEqual([e["kind"] for e in json.load(response)["events"]], kinds)
         finally:
             server.shutdown()
             server.server_close()
