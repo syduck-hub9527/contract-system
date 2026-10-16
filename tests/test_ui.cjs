@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const assert=require('node:assert/strict');
 const {JSDOM}=require('jsdom');
-const html=fs.readFileSync(path.join(__dirname,'../dashboard.html'),'utf8');
+const html=fs.readFileSync(path.join(__dirname,'../contract_radar/assets/dashboard.html'),'utf8');
 const callbacks=[],errors=[];
 const row=(symbol,time,extra={})=>({symbol,market:'UM',price:100,dif:.001,dif_pct:.001,above200:true,live_cross:'',confirmed_cross:'',updated_at:time,ws_connected:true,resync_pending:false,ema21_slope_pct:.5,ema21_slope_base_pct:.01,ema21_slope_base_abs_pct:.02,...extra});
 const state={server_time:1800000000000,phase:'监测',loaded:3,total:3,skipped:0,ws_online:1,ws_expected:1,errors:[],rows:[row('OLDERUSDT',1799999999000),row('BTCUSDT',1800000000000,{live_cross:'golden',confirmed_cross:'death',ema21_slope_pct:.01,ema21_slope_base_pct:.01,ema21_slope_base_abs_pct:.01}),row('ETHUSD_PERP',1799999999990,{market:'CM',above200:false})]};
@@ -21,7 +21,7 @@ const tick=()=>new Promise(r=>setImmediate(r));
  assert.equal(d.querySelector('[data-filter="live-golden"]').classList.contains('active'),true);
  const click=filter=>d.querySelector(`[data-filter="${filter}"]`).click();
  click('live-golden');assert.deepEqual(names(),['BTCUSDT']);assert.match(d.querySelector('#tbody').textContent,/盘中金叉/);assert.doesNotMatch(d.querySelector('#tbody').textContent,/确认死叉/);
-assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['live-golden','live-death','slope-up','slope-down']);click('live-death');assert.deepEqual(names(),[]);
+assert.deepEqual([...d.querySelectorAll('[data-filter]')].map(b=>b.dataset.filter),['live-golden','live-death','slope-up','slope-down','confirmed-any','history']);click('live-death');assert.deepEqual(names(),[]);
  assert.equal(d.body.textContent.includes('接近零轴'),false);assert.equal(d.querySelector('#threshold'),null);
  const older=state.rows[0],eth=state.rows[2],refresh=()=>callbacks.find(x=>x[1]===2000)[0]();
  // 急拉：当前斜率相对此前5根均值大幅上升；BTC 斜率平稳不触发，按最近更新时间排序

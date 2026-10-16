@@ -1,3 +1,3 @@
-include binance_live_dif.py dashboard.html requirements.txt
+include binance_live_dif.py requirements.txt
 recursive-include docs *.md
 recursive-include tests *.py *.cjs *.json

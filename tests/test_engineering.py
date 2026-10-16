@@ -22,6 +22,7 @@ from contract_radar.service import Radar
 from contract_radar.web import create_server
 
 ROOT = Path(__file__).resolve().parent.parent
+UI = ROOT / "contract_radar/assets/dashboard.html"
 
 
 class Configuration(unittest.TestCase):
@@ -83,14 +84,33 @@ class IndicatorsAndUI(unittest.TestCase):
                     expected["pair"],
                 )
 
-    def test_ui_copies_match_reviewed_slope_version(self):
-        content = (ROOT / "dashboard.html").read_bytes()
-        blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "04c4c3668b5cc6239e31f80429561b4ba9f5c22f")
-        self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
+    def test_ui_is_single_source_with_key_structure(self):
+        # v1.1: the packaged page is the only copy; instead of pinning the whole file's
+        # hash, pin the CSS (below) and the DOM hooks the script and tests rely on.
+        self.assertFalse((ROOT / "dashboard.html").exists())
+        html = UI.read_text(encoding="utf-8")
+        for hook in (
+            'id="tbody"',
+            'id="table"',
+            'id="market"',
+            'id="slope-mult"',
+            'id="slope-min"',
+            'id="min-turnover"',
+            'id="notify"',
+            'id="query"',
+            "fetch('/dif-api/state'",
+            "'/dif-api/events'",
+            "difradar.slopeMult",
+            "difradar.slopeMin",
+        ):
+            self.assertIn(hook, html)
+        tabs = re.findall(r'data-filter="([\w-]+)"', html)
+        self.assertEqual(
+            tabs, ["live-golden", "live-death", "slope-up", "slope-down", "confirmed-any", "history"]
+        )
 
     def test_original_css_is_preserved(self):
-        html = (ROOT / "dashboard.html").read_text(encoding="utf-8")
+        html = UI.read_text(encoding="utf-8")
         style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
         self.assertEqual(
             hashlib.sha256(style.encode()).hexdigest(),
@@ -442,7 +462,7 @@ class HTTP(unittest.TestCase):
 
     def test_served_page_is_original_and_state_aliases_match(self):
         with urllib.request.urlopen(self.url) as r:
-            self.assertEqual(r.read(), (ROOT / "dashboard.html").read_bytes())
+            self.assertEqual(r.read(), UI.read_bytes())
         results = []
         for path in ("/api/state", "/dif-api/state"):
             with urllib.request.urlopen(self.url + path) as r:
