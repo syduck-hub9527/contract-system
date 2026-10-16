@@ -95,19 +95,18 @@ class IndicatorsAndUI(unittest.TestCase):
         # hash, pin the CSS (below) and the DOM hooks the script and tests rely on.
         self.assertFalse((ROOT / "dashboard.html").exists())
         html = UI.read_text(encoding="utf-8")
+        for removed in ('id="min-turnover"', 'id="min-volume"', 'id="cost"', "量能", "最大顺"):
+            self.assertNotIn(removed, html)
         for hook in (
             'id="tbody"',
             'id="table"',
             'id="market"',
             'id="slope-mult"',
             'id="slope-min"',
-            'id="min-turnover"',
-            'id="min-volume"',
-            'id="cost"',
             'id="notify"',
             'id="query"',
             "fetch('/dif-api/state'",
-            "'/dif-api/events?kind=surge'",
+            "/dif-api/events?kind=surge&since=",
             "difradar.slopeMult",
             "difradar.slopeMin",
         ):

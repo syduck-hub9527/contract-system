@@ -10,7 +10,7 @@ const state={server_time:1800000000000,phase:'监测',loaded:3,total:3,skipped:0
 const dom=new JSDOM(html,{url:'http://127.0.0.1:8765',runScripts:'dangerously',beforeParse(w){
  w.AbortSignal.timeout=()=>undefined;
  w.setInterval=(fn,delay)=>{callbacks.push([fn,delay]);return callbacks.length;};
- w.fetch=async url=>{assert.equal(url,'/dif-api/state');return {ok:true,json:async()=>state};};
+ w.fetch=async url=>{if(url.startsWith('/dif-api/events?kind=surge&since='))return {ok:true,json:async()=>({server_time:state.server_time,events:[]})};assert.equal(url,'/dif-api/state');return {ok:true,json:async()=>state};};
  w.addEventListener('error',e=>errors.push(e.error));
 }});
 const tick=()=>new Promise(r=>setImmediate(r));

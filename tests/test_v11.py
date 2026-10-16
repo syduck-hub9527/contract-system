@@ -296,6 +296,8 @@ class EventsEndpoint(unittest.TestCase):
             for query, kinds in (
                 ("?kind=surge", ["surge_down", "surge_up"]),
                 ("", ["surge_down", "surge_up"]),
+                ("?kind=surge&since=2", ["surge_down"]),
+                ("?kind=surge&since=bad", ["surge_down", "surge_up"]),
             ):
                 with urllib.request.urlopen(url + "/dif-api/events" + query) as response:
                     self.assertEqual([e["kind"] for e in json.load(response)["events"]], kinds)

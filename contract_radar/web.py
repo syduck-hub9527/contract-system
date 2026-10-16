@@ -71,8 +71,13 @@ class HTTPHandler(BaseHTTPRequestHandler):
         elif path in ("/api/state", "/dif-api/state"):
             self._json(200, self.radar.snapshot())
         elif path in ("/api/events", "/dif-api/events"):
-            kind = (parse_qs(parsed.query).get("kind") or [""])[0]
-            self._json(200, self.radar.events_snapshot(kind))
+            query = parse_qs(parsed.query)
+            kind = (query.get("kind") or [""])[0]
+            try:
+                since = int((query.get("since") or ["0"])[0])
+            except ValueError:
+                since = 0
+            self._json(200, self.radar.events_snapshot(kind, since))
         elif path == "/health":
             status = self.radar.health()
             self._json(200 if status["ok"] else 503, status)

@@ -411,10 +411,14 @@ class Radar:
             self._finish_event(event)
         self._surge_candle.pop(key, None)
 
-    def events_snapshot(self, kind: str = "") -> dict[str, Any]:
-        """急拉/急跌记录，新的在前。kind 参数为兼容保留（"surge" 或空），记录只有这一类。"""
+    def events_snapshot(self, kind: str = "", since: int = 0) -> dict[str, Any]:
+        """急拉/急跌记录，新的在前；since 只返回触发时间不早于它的记录（毫秒）。
+
+        kind 参数为兼容保留（"surge" 或空），记录只有这一类。
+        """
         with self.lock:
-            return {"server_time": self.now_ms(), "events": [dict(e) for e in reversed(self.events)]}
+            events = [dict(e) for e in reversed(self.events) if e["at"] >= since]
+            return {"server_time": self.now_ms(), "events": events}
 
     # ---- EMA21 急拉 / 急跌 ----
 
