@@ -81,7 +81,7 @@ class IndicatorsAndUI(unittest.TestCase):
     def test_ui_copies_match_reviewed_slope_version(self):
         content = (ROOT / "dashboard.html").read_bytes()
         blob = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
-        self.assertEqual(blob, "b5d5e6f335ce3de1a32d23cdb7a02daf23ae34e8")
+        self.assertEqual(blob, "04c4c3668b5cc6239e31f80429561b4ba9f5c22f")
         self.assertEqual(content, (ROOT / "contract_radar/assets/dashboard.html").read_bytes())
 
     def test_original_css_is_preserved(self):

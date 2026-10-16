@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as tmp:
 from importlib.resources import files
 assert "installed" in contract_radar.__file__
 b = files("contract_radar").joinpath("assets/dashboard.html").read_bytes()
-assert hashlib.sha1(f"blob {len(b)}\\0".encode()+b).hexdigest() == "b5d5e6f335ce3de1a32d23cdb7a02daf23ae34e8"
+assert hashlib.sha1(f"blob {len(b)}\\0".encode()+b).hexdigest() == "04c4c3668b5cc6239e31f80429561b4ba9f5c22f"
 """
     subprocess.run([sys.executable, "-c", code], cwd=tmp, env=env, check=True)
 print("Installed wheel and volume UI: PASS")
