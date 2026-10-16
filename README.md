@@ -214,7 +214,7 @@ node tests/test_ui.cjs
 | `funding_rate` | 实时预估资金费率，随行情变化（正值表示多头付给空头） | 是 |
 | `next_funding_time` | 下次结算时间 | 是 |
 | `funding_updated_at` | 资金费率获取时间 | 是 |
-| `funding_stale` | 资金费率是否过期 | 是 |
+| `funding_stale` | 资金费率是否过期（距上次成功获取超过三个刷新周期，或尚无数据） | 是 |
 
 ## 列表成交量
 

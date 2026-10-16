@@ -341,6 +341,39 @@ class GapObservation(unittest.TestCase):
         self.assertEqual(r.health()["gap_resyncs_top"], [])
         self.assertFalse(r.gap_resync_counts)
 
+    def test_websocket_gap_message_is_counted_once_and_queues_resync(self):
+        r = Radar(("UM",))
+        key = ("UM", "T")
+        r.states[key] = initialize_pair(*key, history(), BASE + 60000)
+        r.symbol_ws[key] = "generation"
+        r.ws_online["generation"] = False
+        r.now_ms = lambda: BASE + 3 * I + 1000
+        gap = json.dumps(
+            {"e": "kline", "s": "T", "k": {"t": BASE + 3 * I, "c": "100", "x": False, "i": "5m"}}
+        )
+
+        class FakeWS:
+            def __init__(self, url, **callbacks):
+                self.callbacks = callbacks
+
+            def run_forever(self, **kwargs):
+                self.callbacks["on_open"](self)
+                self.callbacks["on_message"](self, gap)
+                # 已进入重同步的合约会丢弃后续消息，不得重复计数
+                self.callbacks["on_message"](self, gap)
+                r.stop_event.set()
+
+            def close(self, **kwargs):
+                pass
+
+        with patch("contract_radar.service.websocket.WebSocketApp", FakeWS):
+            r._ws_loop("UM", ["T"], "generation")
+        health = r.health()
+        self.assertEqual(health["gap_resyncs"], 1)
+        self.assertEqual(health["gap_resyncs_top"], [["UM:T", 1]])
+        self.assertTrue(r.states[key].resync_pending)
+        self.assertEqual(r.resync_queue.get_nowait(), key)
+
 
 class ProcessLifecycle(unittest.TestCase):
     @unittest.skipUnless(__import__("os").name == "posix", "SIGTERM process check on POSIX")
