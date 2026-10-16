@@ -69,6 +69,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self._send(200, "text/html; charset=utf-8", self.html)
         elif path in ("/api/state", "/dif-api/state"):
             self._json(200, self.radar.snapshot())
+        elif path in ("/api/events", "/dif-api/events"):
+            self._json(200, self.radar.events_snapshot())
         elif path == "/health":
             status = self.radar.health()
             self._json(200 if status["ok"] else 503, status)
@@ -100,7 +102,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             pass
 
     def log_message(self, fmt, *args):
-        if not self.path.startswith(("/api/state", "/dif-api/state")):
+        if not self.path.startswith(("/api/state", "/dif-api/state", "/api/events", "/dif-api/events")):
             LOG.info("http %s - %s", self.address_string(), fmt % args)
 
 

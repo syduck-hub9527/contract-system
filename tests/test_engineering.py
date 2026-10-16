@@ -68,13 +68,18 @@ class IndicatorsAndUI(unittest.TestCase):
             current.pop("live_updated_at")
             current.pop("recent_dif")
             current.pop("recent_ema21")
+            current.pop("last_close_price")  # v1.1 新增的记账字段，不属于旧版快照
             self.assertEqual(current, case["expected"], case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
                     update_pair(p, {"t": BASE, "c": str(price), "x": closed}, BASE + I), expected["result"]
                 )
                 self.assertEqual(
-                    {k: v for k, v in asdict(p).items() if k not in ("recent_dif", "recent_ema21")},
+                    {
+                        k: v
+                        for k, v in asdict(p).items()
+                        if k not in ("recent_dif", "recent_ema21", "last_close_price")
+                    },
                     expected["pair"],
                 )
 
@@ -120,7 +125,7 @@ class Transport(unittest.TestCase):
         session = MagicMock()
         session.get.side_effect = responses
         client = RESTClient(Settings(), session_factory=lambda: session)
-        client.pace.wait = lambda: None
+        client.pace.wait = lambda *args: None
         return client, session
 
     def test_request_timeouts_reuse_session_and_close(self):
@@ -309,7 +314,7 @@ class ApiDocumentation(unittest.TestCase):
         top_part, row_part = section.split("`rows` 数组", 1)
         documented_top = set(re.findall(r"^\| `(\w+)` \|", top_part, re.M))
         documented_row = set(re.findall(r"^\| `(\w+)` \|", row_part, re.M))
-        self.assertEqual(len(documented_row), 33)
+        self.assertEqual(len(documented_row), 35)
 
         radar = Radar(("UM",))
         key = ("UM", "TESTUSDT")

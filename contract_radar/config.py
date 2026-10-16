@@ -21,7 +21,15 @@ class Settings:
     # 0.165s keeps the startup burst within the owner-set 1920 weight/min target at
     # klines weight 5 (60/0.165*5 = 1818, +50 steady-state = 1868 <= 1920); the 2400
     # hard cap was met at 0.13s but the owner target was not (measured peak 2130).
+    # Since v1.1 pacing is weight-based: 0.165s is the slot of one weight-5 request and
+    # every request is charged by its weight, so all REST traffic, steady-state calls
+    # included, stays within 60/0.165*5 = 1818 weight/min; weight-1 calls take 0.033s.
     request_spacing: float = 0.165
+    # Binance reports the per-minute weight it has counted (X-MBX-USED-WEIGHT-1M);
+    # at or above this value every REST call pauses until the next minute.
+    weight_target: int = 1920
+    # Optional directory for state snapshots (fast restart) and the signal event log.
+    data_dir: str = ""
     connect_timeout: float = 5.0
     read_timeout: float = 15.0
     retry_attempts: int = 3
@@ -47,6 +55,7 @@ class Settings:
             "retry_attempts": (1, 5),
             "resync_capacity": (1, 10000),
             "http_workers": (1, 128),
+            "weight_target": (100, 2400),
         }
         for name, (low, high) in limits.items():
             value = getattr(self, name)

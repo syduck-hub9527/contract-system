@@ -178,7 +178,7 @@ node tests/test_ui.cjs
 | `errors` | 最近 3 条错误，新的在前 |
 | `rows` | 合约行数组 |
 
-`rows` 数组中每个合约行的字段（共 33 个）：
+`rows` 数组中每个合约行的字段（共 35 个）：
 
 | 字段 | 含义 | 前端是否使用 |
 |---|---|---|
@@ -194,6 +194,8 @@ node tests/test_ui.cjs
 | `ema200_rising` | 已收盘 EMA200 是否高于前一根 | 否 |
 | `live_cross` | 盘中金叉/死叉，`golden` / `death` / 空串 | 是 |
 | `confirmed_cross` | 已确认金叉/死叉，仅在收盘后 5 分钟内出现 | 是 |
+| `confirmed_at` | 已确认信号所在K线的收盘时间（毫秒），无信号时为 0 | 是 |
+| `live_cross_since` | 当前盘中交叉在这根K线里首次出现的时间（毫秒），无交叉时为 0 | 是 |
 | `updated_at` | 最近一次行情更新时间 | 是 |
 | `current_candle` | 是否存在进行中的 K 线 | 否 |
 | `recent_cross` | 最近 10 根已收盘 K 线内 DIF 是否出现过穿越 | 否 |

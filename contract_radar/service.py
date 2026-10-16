@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import queue
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, fields, replace
+from pathlib import Path
 from typing import Any
 
 import websocket
@@ -17,10 +21,20 @@ from .config import Settings
 from .constants import CANDLE_LIMIT, INTERVAL_MS, MARKETS
 from .exchange import RESTClient, Stopped
 from .funding import Funding, missing_funding
-from .indicators import Pair, crossed, had_cross, initialize_pair, slope_stats, update_pair
+from .indicators import Pair, advance_pair, crossed, had_cross, initialize_pair, slope_stats, update_pair
 from .volume import Volume, missing_volume
 
 LOG = logging.getLogger("difradar")
+
+CATCHUP_MAX = 96  # 增量补齐最多 96 根（8 小时）；limit ≤ 98 时K线接口权重为 1
+EVENT_HISTORY = 500  # 内存中保留的信号事件条数
+EVENT_HORIZONS = ((3, "ret_15m"), (6, "ret_30m"), (12, "ret_60m"))  # 信号后第 N 根收盘的涨跌幅
+STATE_FILE = "state.json"
+EVENTS_FILE = "events.jsonl"
+STATE_VERSION = 1
+STATE_SAVE_SECONDS = 60
+MARK_STREAM_FRESH_MS = 10_000  # U本位标记价格流在此时间内有推送时，跳过资金费率 REST 轮询
+PAIR_FIELDS = {f.name for f in fields(Pair)}
 
 
 class Radar:
@@ -56,6 +70,19 @@ class Radar:
         self.gap_resyncs = 0
         self.gap_resync_counts: Counter[tuple[str, str]] = Counter()
         self.time_offset_ms = 0  # 币安服务器时间 - 本机时间，用于判断K线是否收盘
+        self.resync_incremental = 0
+        self.resync_full = 0
+        self.warm_loaded = 0
+        self.live_since: dict[tuple[str, str], tuple[str, int, int]] = {}  # 方向, live_t, 首次出现时间
+        self.events: deque[dict[str, Any]] = deque(maxlen=EVENT_HISTORY)
+        self._event_keys: set[tuple[str, str, int]] = set()
+        self._pending_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._event_outbox: list[dict[str, Any]] = []
+        self._event_seq = 0
+        self.mark_stream_at = 0
+        self.data_dir = Path(self.settings.data_dir).expanduser() if self.settings.data_dir else None
+        self._saved_states: dict[tuple[str, str], Pair] = {}
+        self._persist_loaded = False
 
     def now_ms(self) -> int:
         return int(time.time() * 1000) + self.time_offset_ms
@@ -189,7 +216,8 @@ class Radar:
                 except Exception as exc:
                     self._error(f"{MARKETS[market]['title']}24小时成交量获取失败: {exc}")
                 try:
-                    self._refresh_fundings(market)
+                    if not (market == "UM" and self._mark_stream_fresh()):
+                        self._refresh_fundings(market)
                 except Stopped:
                     return
                 except Exception as exc:
@@ -206,6 +234,285 @@ class Radar:
         if not isinstance(rows, list):
             raise RuntimeError(f"{symbol}: K线接口返回非列表数据")
         return initialize_pair(market, symbol, rows, now_ms=self.now_ms())
+
+    def _catch_up(self, market: str, symbol: str, pair: Pair) -> Pair | None:
+        """只拉取 last_close_t 之后缺失的K线（权重 1）并接着推进 EMA；不适用时返回 None。"""
+        now = self.now_ms()
+        current_open = now - now % INTERVAL_MS
+        missing = (current_open - pair.last_close_t) // INTERVAL_MS
+        if pair.last_close_price <= 0 or not 1 <= missing <= CATCHUP_MAX:
+            return None
+        cfg = MARKETS[market]
+        limit = missing + 2
+        rows = self._json(
+            cfg["rest"] + cfg["klines"],
+            {
+                "symbol": symbol,
+                "interval": "5m",
+                "startTime": pair.last_close_t + INTERVAL_MS,
+                "limit": limit,
+            },
+        )
+        # 返回条数达到 limit 说明可能被截断，不能用补齐规则猜测缺失部分
+        if not isinstance(rows, list) or len(rows) >= limit:
+            return None
+        return advance_pair(pair, rows, now_ms=self.now_ms())
+
+    def _restore_or_prime(self, market: str, symbol: str) -> Pair:
+        with self.lock:
+            saved = self._saved_states.pop((market, symbol), None)
+        if saved is not None:
+            try:
+                pair = self._catch_up(market, symbol, saved)
+            except Stopped:
+                raise
+            except Exception as exc:
+                LOG.debug("%s %s 状态恢复失败，改为完整载入: %s", market, symbol, exc)
+                pair = None
+            if pair is not None:
+                with self.lock:
+                    self.warm_loaded += 1
+                return pair
+        return self._prime(market, symbol)
+
+    # ---- 状态与事件持久化（仅在配置 data_dir 时启用） ----
+
+    def _load_persisted(self):
+        if self.data_dir is None:
+            return
+        saved: dict[tuple[str, str], Pair] = {}
+        try:
+            payload = json.loads((self.data_dir / STATE_FILE).read_text(encoding="utf-8"))
+            if payload.get("version") == STATE_VERSION and payload.get("interval_ms") == INTERVAL_MS:
+                for item in payload.get("pairs", []):
+                    try:
+                        pair = Pair(**{k: v for k, v in item.items() if k in PAIR_FIELDS})
+                        numbers = (
+                            pair.ema21,
+                            pair.ema50,
+                            pair.ema200,
+                            pair.last_close_price,
+                            pair.closed_dif,
+                        )
+                        if pair.market not in self.enabled_markets or pair.last_close_t % INTERVAL_MS:
+                            continue
+                        if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in numbers):
+                            continue
+                        pair.ws_connected = pair.resync_pending = False
+                        saved[(pair.market, pair.symbol)] = pair
+                    except (TypeError, ValueError):
+                        continue
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, AttributeError) as exc:
+            self._error(f"状态文件无法读取，将完整载入: {exc}")
+        events: list[dict[str, Any]] = []
+        try:
+            with (self.data_dir / EVENTS_FILE).open(encoding="utf-8") as handle:
+                for line in deque(handle, maxlen=EVENT_HISTORY):
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(event, dict) and {"market", "symbol", "kind", "at", "price"} <= set(event):
+                        events.append(event)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            self._error(f"信号记录无法读取: {exc}")
+        with self.lock:
+            self._saved_states = saved
+            for event in events:
+                event["done"] = True
+                self._append_event(event)
+                self._event_seq = max(self._event_seq, int(event.get("id", 0) or 0))
+            self._persist_loaded = True
+        if saved:
+            LOG.info("读取到 %d 个合约的保存状态，将尝试增量恢复", len(saved))
+
+    def _persist(self):
+        """原子写入状态快照，并把已结束的信号事件追加到 JSONL。"""
+        if self.data_dir is None or not self._persist_loaded:
+            return
+        with self.lock:
+            pairs = {key: asdict(pair) for key, pair in self.states.items() if pair.last_close_price > 0}
+            for key, pair in self._saved_states.items():  # 尚未恢复的保存状态原样保留
+                pairs.setdefault(key, asdict(pair))
+            outbox, self._event_outbox = self._event_outbox, []
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "version": STATE_VERSION,
+                "interval_ms": INTERVAL_MS,
+                "saved_at": self.now_ms(),
+                "pairs": list(pairs.values()),
+            }
+            tmp = self.data_dir / (STATE_FILE + ".tmp")
+            tmp.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False), encoding="utf-8")
+            os.replace(tmp, self.data_dir / STATE_FILE)
+            if outbox:
+                with (self.data_dir / EVENTS_FILE).open("a", encoding="utf-8") as handle:
+                    for event in outbox:
+                        handle.write(json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n")
+        except (OSError, ValueError) as exc:
+            with self.lock:
+                self._event_outbox = outbox + self._event_outbox
+            self._error(f"状态保存失败: {exc}")
+
+    def _persist_loop(self):
+        while not self.stop_event.wait(STATE_SAVE_SECONDS):
+            self._persist()
+
+    # ---- 信号事件 ----
+
+    def _append_event(self, event):
+        if len(self.events) == self.events.maxlen:
+            old = self.events[0]
+            self._event_keys.discard((old["market"], old["symbol"], old["at"]))
+        self.events.append(event)
+        self._event_keys.add((event["market"], event["symbol"], event["at"]))
+
+    def _notional(self, key, price):
+        volume = self.volumes.get(key)
+        if volume is None:
+            return None
+        if volume.quote_volume is not None:
+            return volume.quote_volume
+        return volume.base_volume * price
+
+    def _record_confirmed(self, key, pair):
+        """把一根K线收盘确认的金叉/死叉记为事件（同一合约同一根K线只记一次）。调用方持有锁。"""
+        if not pair.confirmed or not pair.confirmed_at or pair.last_close_price <= 0:
+            return
+        if (key[0], key[1], pair.confirmed_at) in self._event_keys:
+            return
+        funding = self.fundings.get(key)
+        self._event_seq += 1
+        event = {
+            "id": self._event_seq,
+            "market": key[0],
+            "symbol": key[1],
+            "kind": pair.confirmed,
+            "at": pair.confirmed_at,
+            "price": pair.last_close_price,
+            "turnover": self._notional(key, pair.last_close_price),
+            "funding_rate": funding.rate if funding is not None else None,
+            **{name: None for _, name in EVENT_HORIZONS},
+            "done": False,
+        }
+        self._append_event(event)
+        self._pending_events.setdefault(key, []).append(event)
+
+    def _advance_events(self, key, pair):
+        """每根K线收盘后，为该合约尚未结束的事件填写第 3/6/12 根收盘的涨跌幅。调用方持有锁。"""
+        pending = self._pending_events.get(key)
+        if not pending:
+            return
+        close_t = pair.last_close_t + INTERVAL_MS
+        keep = []
+        for event in pending:
+            n = (close_t - event["at"]) // INTERVAL_MS
+            for horizon, name in EVENT_HORIZONS:
+                if n == horizon and event[name] is None:
+                    event[name] = 100.0 * (pair.last_close_price / event["price"] - 1.0)
+            if n >= EVENT_HORIZONS[-1][0]:
+                self._finish_event(event)
+            else:
+                keep.append(event)
+        if keep:
+            self._pending_events[key] = keep
+        else:
+            self._pending_events.pop(key, None)
+
+    def _finish_event(self, event):
+        event["done"] = True
+        self._event_outbox.append(dict(event))
+
+    def _drop_events(self, key):
+        for event in self._pending_events.pop(key, []):
+            self._finish_event(event)
+
+    def events_snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {"server_time": self.now_ms(), "events": [dict(e) for e in reversed(self.events)]}
+
+    def _track_live(self, key, state, now):
+        """记录盘中交叉在当前这根K线里首次出现的时间。调用方持有锁。"""
+        if state.live_t > state.last_close_t:
+            direction = crossed(state.closed_dif, state.live21 - state.live50)
+            if direction:
+                previous = self.live_since.get(key)
+                if not previous or previous[0] != direction or previous[1] != state.live_t:
+                    self.live_since[key] = (direction, state.live_t, now)
+                return
+        self.live_since.pop(key, None)
+
+    # ---- U本位资金费率：标记价格流 ----
+
+    def _on_mark_prices(self, raw):
+        frame = json.loads(raw)
+        data = frame.get("data") if isinstance(frame, dict) else frame
+        if not isinstance(data, list):
+            return
+        now = self.now_ms()
+        updates = {}
+        for item in data:
+            if not isinstance(item, dict) or item.get("e") != "markPriceUpdate":
+                continue
+            symbol = item.get("s")
+            if not isinstance(symbol, str):
+                continue
+            try:
+                updates[("UM", symbol.upper())] = Funding.from_premium(
+                    {"lastFundingRate": item.get("r"), "nextFundingTime": item.get("T")}, now
+                )
+            except (ValueError, TypeError, OverflowError):
+                continue
+        with self.lock:
+            for key, funding in updates.items():
+                if key in self.symbol_metadata:
+                    self.fundings[key] = funding
+            if updates:
+                self.mark_stream_at = now
+
+    def _mark_stream_fresh(self):
+        with self.lock:
+            return (
+                bool(self.mark_stream_at) and 0 <= self.now_ms() - self.mark_stream_at <= MARK_STREAM_FRESH_MS
+            )
+
+    def _mark_loop(self):
+        url = MARKETS["UM"]["ws"] + "?streams=!markPrice@arr@1s"
+        delay = 2.0
+        while not self.stop_event.is_set():
+            had_event = False
+
+            def on_message(ws, raw):
+                nonlocal had_event
+                had_event = True
+                try:
+                    self._on_mark_prices(raw)
+                except Exception as exc:
+                    LOG.debug("标记价格消息处理失败: %s", exc)
+
+            def on_error(ws, err):
+                LOG.debug("标记价格流异常: %s", str(err)[:140])
+
+            try:
+                ws = websocket.WebSocketApp(url, on_message=on_message, on_error=on_error)
+                with self.lock:
+                    if self.stop_event.is_set():
+                        return
+                    self._sockets["mark-price"] = ws
+                ws.run_forever(ping_interval=120, ping_timeout=30)
+            except Exception as exc:
+                LOG.debug("标记价格流运行失败: %s", exc)
+            finally:
+                with self.lock:
+                    self._sockets.pop("mark-price", None)
+            delay = 2.0 if had_event else min(60.0, delay * 1.8)
+            if self.stop_event.wait(delay):
+                return
 
     def _spawn(self, target, name, args=()):
         def run():
@@ -262,6 +569,10 @@ class Radar:
                 thread.join(max(0, deadline - time.monotonic()))
         self.client.close()
         with self.lock:
+            for key in list(self._pending_events):
+                self._drop_events(key)
+        self._persist()
+        with self.lock:
             self._timers.clear()
             remaining = [t.name for t in self._threads if t.is_alive()]
         if remaining:
@@ -305,6 +616,7 @@ class Radar:
     def _bootstrap(self):
         if self.stop_event.is_set():
             return
+        self._load_persisted()
         self._sync_time()
         jobs = []
         for market in self.enabled_markets:
@@ -318,6 +630,10 @@ class Radar:
                 self._error(f"{MARKETS[market]['title']}合约列表获取失败: {exc}")
 
         self._spawn(self._volume_loop, "volume")
+        if "UM" in self.enabled_markets:
+            self._spawn(self._mark_loop, "mark-price")
+        if self.data_dir is not None:
+            self._spawn(self._persist_loop, "persist")
         if not jobs:
             with self.lock:
                 self.phase = "无法连接币安：请检查网络或接口访问权限"
@@ -339,7 +655,9 @@ class Radar:
         """并发载入历史K线，每攒满一批就建立一条 WebSocket。"""
         batches: dict[str, list[str]] = {m: [] for m in self.enabled_markets}
         with ThreadPoolExecutor(max_workers=self.settings.workers, thread_name_prefix="klines") as executor:
-            future_map = {executor.submit(self._prime, market, sym): (market, sym) for market, sym in jobs}
+            future_map = {
+                executor.submit(self._restore_or_prime, market, sym): (market, sym) for market, sym in jobs
+            }
             for future in as_completed(future_map):
                 if self.stop_event.is_set():
                     for pending in future_map:
@@ -351,6 +669,7 @@ class Radar:
                     with self.lock:
                         self.states[(market, sym)] = pair
                         self.loaded += 1
+                        self._record_confirmed((market, sym), pair)
                     batches[market].append(sym)
                     if len(batches[market]) >= self.settings.ws_batch:
                         self._start_ws(market, batches[market])
@@ -361,6 +680,8 @@ class Radar:
                     # 仅记录最后几条，避免在页面显示大量错误
                     self._error(f"{market} {sym} 初始化失败: {exc}")
 
+        with self.lock:
+            self._saved_states.clear()  # 未用上的保存状态（已下架或载入失败）不再保留
         self.client.close_idle()
         for market, symbols in batches.items():
             if symbols:
@@ -396,6 +717,8 @@ class Radar:
                 self.states.pop(key, None)
                 self.symbol_ws.pop(key, None)
                 self.gap_resync_counts.pop(key, None)
+                self.live_since.pop(key, None)
+                self._drop_events(key)
         if gone:
             with self.lock:
                 retired = [g for g in self.ws_online if not any(v == g for v in self.symbol_ws.values())]
@@ -476,10 +799,17 @@ class Radar:
                             or self.symbol_ws.get((market, symbol)) != group_key
                         ):
                             return
-                        result = update_pair(state, k, self.now_ms())
+                        now = self.now_ms()
+                        result = update_pair(state, k, now)
                         if result == "gap":
                             self._note_gap((market, symbol))
                             self._queue_resync((market, symbol))
+                        elif result == "ok":
+                            key = (market, symbol)
+                            self._track_live(key, state, now)
+                            if k.get("x") is True:
+                                self._record_confirmed(key, state)
+                                self._advance_events(key, state)
                 except Exception as exc:
                     self._error(f"{market} 消息处理失败: {exc}")
 
@@ -538,12 +868,31 @@ class Radar:
                     if key not in self.states:  # 已下架/已移除，无需同步
                         self.resync_attempts.pop(key, None)
                         continue
-                refreshed = self._prime(market, symbol)
+                    current = self.states[key]
+                    current = replace(current) if isinstance(current, Pair) else None
+                refreshed = None
+                if current is not None:
+                    try:
+                        refreshed = self._catch_up(market, symbol, current)
+                    except Stopped:
+                        raise
+                    except Exception as exc:
+                        LOG.debug("%s %s 增量同步失败，改为完整重载: %s", market, symbol, exc)
+                incremental = refreshed is not None
+                if refreshed is None:
+                    refreshed = self._prime(market, symbol)
                 with self.lock:
                     if key in self.states:
                         # 旧 socket 一般仍在线，重新计算后等待下一次K线推送
                         refreshed.ws_connected = bool(self.ws_online.get(self.symbol_ws.get(key, ""), False))
                         self.states[key] = refreshed
+                        self.live_since.pop(key, None)
+                        self._record_confirmed(key, refreshed)
+                        self._advance_events(key, refreshed)
+                        if incremental:
+                            self.resync_incremental += 1
+                        else:
+                            self.resync_full += 1
                     self.resync_attempts.pop(key, None)
             except Stopped:
                 return
@@ -577,6 +926,14 @@ class Radar:
                 live_cross = (
                     crossed(state.closed_dif, dif) if fresh_live and state.live_t > state.last_close_t else ""
                 )
+                key = (state.market, state.symbol)
+                live_since = 0
+                if live_cross:
+                    record = self.live_since.get(key)
+                    if not record or record[0] != live_cross or record[1] != state.live_t:
+                        record = (live_cross, state.live_t, now)
+                        self.live_since[key] = record
+                    live_since = record[2]
                 confirmed = (
                     state.confirmed
                     if fresh_live and state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
@@ -596,6 +953,8 @@ class Radar:
                         "ema200_rising": state.ema200 > state.previous_ema200,
                         "live_cross": live_cross,
                         "confirmed_cross": confirmed,
+                        "confirmed_at": state.confirmed_at if confirmed else 0,
+                        "live_cross_since": live_since,
                         "updated_at": state.live_updated_at,
                         "current_candle": state.live_t > state.last_close_t,
                         "recent_cross": had_cross(state.recent_dif),
@@ -656,4 +1015,10 @@ class Radar:
                 "workers": len(self._threads),
                 "gap_resyncs": self.gap_resyncs,
                 "gap_resyncs_top": [[f"{m}:{s}", n] for (m, s), n in self.gap_resync_counts.most_common(5)],
+                "resync_incremental": self.resync_incremental,
+                "resync_full": self.resync_full,
+                "warm_loaded": self.warm_loaded,
+                "used_weight": dict(self.client.used_weight),
+                "mark_stream_at": self.mark_stream_at,
+                "events": len(self.events),
             }

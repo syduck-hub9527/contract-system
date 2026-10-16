@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .constants import INTERVAL_MS, MAX_FILL
 
@@ -36,6 +36,7 @@ class Pair:
     last_error: str = ""
     recent_dif: list[float] = field(default_factory=list, repr=False)
     recent_ema21: list[float] = field(default_factory=list, repr=False)
+    last_close_price: float = 0.0  # 最近一根已收盘K线的收盘价（增量补齐与信号记录用）
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -167,6 +168,7 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         live_updated_at=now_ms,
         recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
+        last_close_price=closed_price,
     )
     return pair
 
@@ -202,4 +204,105 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.recent_dif = (pair.recent_dif + [pair.closed_dif])[-RECENT_DIF_COUNT:]
         pair.recent_ema21 = (pair.recent_ema21 + [l21])[-RECENT_EMA21_COUNT:]
         pair.last_close_t = t
+        pair.last_close_price = p
     return "ok"
+
+
+def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
+    """在已有 EMA 状态上只补最近缺失的K线，返回新的 Pair（不修改传入对象）。
+
+    与 initialize_pair 使用同一套规则：无成交的K线用上一根收盘价补齐，
+    只为最后一根新收盘K线判断确认信号。逐根推进与从同一起点完整重算的结果逐位一致。
+    调用方必须保证 klines 覆盖 last_close_t 之后到当前的全部有成交K线（没有被 limit 截断）。
+    """
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    if pair.last_close_price <= 0 or not math.isfinite(pair.last_close_price):
+        raise ValueError("缺少最近收盘价，无法增量补齐")
+    if any(not isinstance(r, (list, tuple)) or len(r) < 7 for r in klines):
+        raise ValueError("无效K线格式")
+    rows = sorted((r for r in klines if int(r[0]) > pair.last_close_t), key=lambda r: int(r[0]))
+    times = [int(r[0]) for r in rows]
+    if any(t % INTERVAL_MS for t in times) or len(set(times)) != len(times):
+        raise ValueError("K线时间未对齐或重复")
+    current_open = now_ms - now_ms % INTERVAL_MS
+    if pair.last_close_t + INTERVAL_MS > current_open:
+        raise ValueError("状态时间晚于当前K线")
+
+    series: list[tuple[int, float]] = []
+    last_t, last_close = pair.last_close_t, pair.last_close_price
+    filled = 0
+    for row in rows:
+        if int(row[6]) >= now_ms:
+            continue
+        close = float(row[4])
+        if not math.isfinite(close) or close <= 0:
+            raise ValueError("无效K线价格")
+        open_t = int(row[0])
+        while last_t + INTERVAL_MS < open_t:
+            last_t += INTERVAL_MS
+            series.append((last_t, last_close))
+            filled += 1
+        last_t, last_close = open_t, close
+        series.append((open_t, close))
+    while last_t + INTERVAL_MS < current_open:
+        last_t += INTERVAL_MS
+        series.append((last_t, last_close))
+        filled += 1
+    if filled > MAX_FILL:
+        raise ValueError("长时间无成交，缺失K线过多")
+
+    ema21, ema50, ema200 = pair.ema21, pair.ema50, pair.ema200
+    previous_ema200 = pair.previous_ema200
+    previous_dif = pair.closed_dif
+    difs = list(pair.recent_dif)
+    ema21s = list(pair.recent_ema21)
+    confirmed, confirmed_at = pair.confirmed, pair.confirmed_at
+    for idx, (open_t, close) in enumerate(series):
+        previous_ema200 = ema200
+        ema21 = ema_update(ema21, close, 21)
+        ema50 = ema_update(ema50, close, 50)
+        ema200 = ema_update(ema200, close, 200)
+        dif = ema21 - ema50
+        difs.append(dif)
+        ema21s.append(ema21)
+        if idx == len(series) - 1:
+            confirmed = crossed(previous_dif, dif)
+            confirmed_at = open_t + INTERVAL_MS if confirmed else 0
+        previous_dif = dif
+
+    closed_t, closed_price = series[-1] if series else (pair.last_close_t, pair.last_close_price)
+    running = [r for r in rows if int(r[0]) > closed_t]
+    if running:
+        price = float(running[-1][4])
+        live_t = int(running[-1][0])
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError("无效盘中K线价格")
+    elif series:
+        price, live_t = closed_price, closed_t
+    else:
+        price, live_t = pair.price, pair.live_t
+    is_running = live_t > closed_t
+    return replace(
+        pair,
+        last_close_t=closed_t,
+        ema21=ema21,
+        ema50=ema50,
+        ema200=ema200,
+        previous_ema200=previous_ema200,
+        closed_dif=ema21 - ema50,
+        live_t=live_t,
+        price=price,
+        live21=ema_update(ema21, price, 21) if is_running else ema21,
+        live50=ema_update(ema50, price, 50) if is_running else ema50,
+        live200=ema_update(ema200, price, 200) if is_running else ema200,
+        confirmed=confirmed,
+        confirmed_at=confirmed_at,
+        live_updated_at=now_ms,
+        ws_connected=False,
+        resync_pending=False,
+        last_error="",
+        recent_dif=difs[-RECENT_DIF_COUNT:],
+        recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
+        last_close_price=closed_price,
+    )
