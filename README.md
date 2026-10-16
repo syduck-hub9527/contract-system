@@ -118,7 +118,7 @@ python -m contract_radar
 | `RADAR_WORKERS` / `RADAR_RESYNC_WORKERS` | 7 / 2 | 初始化与同步并发 |
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
-| `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量刷新周期，允许30至300秒 |
+| `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量与资金费率的刷新周期，允许30至300秒 |
 | `RADAR_REQUEST_SPACING` | 0.165 | 全局REST间隔/秒。K线limit≥500对应权重5；0.165s使启动突发整分钟最坏1818+50=1868≤所有者目标1920。测算见 docs/architecture.md“暖机长度与限流测算” |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
@@ -159,6 +159,62 @@ node tests/test_ui.cjs
 测试锁定增加成交量后的UI副本、原CSS与原版EMA计算/盘中更新快照；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，使用Python3.12。
 
 模块职责见 [架构与维护说明](docs/architecture.md)。
+
+## 状态API字段
+
+`/api/state` 与 `/dif-api/state` 返回相同内容。字段只增不删；消费方应按名字访问，并容忍未来新增字段。
+
+顶层字段：
+
+| 字段 | 含义 |
+|---|---|
+| `server_time` | 交易所校准时钟，毫秒 |
+| `phase` | 当前阶段文字 |
+| `total` | 已发现的合约总数 |
+| `loaded` | 已完成初始化的合约数 |
+| `skipped` | 已跳过数 |
+| `ws_online` | 在线 WebSocket 连接数 |
+| `ws_expected` | 预期 WebSocket 连接数 |
+| `errors` | 最近 3 条错误，新的在前 |
+| `rows` | 合约行数组 |
+
+`rows` 数组中每个合约行的字段（共 33 个）：
+
+| 字段 | 含义 | 前端是否使用 |
+|---|---|---|
+| `market` | `UM` 或 `CM` | 是 |
+| `symbol` | 合约名 | 是 |
+| `price` | 最新价 | 是 |
+| `ema21` | 盘中 EMA21（用当前价对上一根已收盘 EMA 计算的临时值） | 否 |
+| `ema50` | 盘中 EMA50（同上） | 否 |
+| `ema200` | 盘中 EMA200（同上） | 否 |
+| `dif` | `ema21 − ema50`（盘中） | 否 |
+| `dif_pct` | `100 × dif / price` | 否 |
+| `above200` | `price > ema200` | 是 |
+| `ema200_rising` | 已收盘 EMA200 是否高于前一根 | 否 |
+| `live_cross` | 盘中金叉/死叉，`golden` / `death` / 空串 | 是 |
+| `confirmed_cross` | 已确认金叉/死叉，仅在收盘后 5 分钟内出现 | 是 |
+| `updated_at` | 最近一次行情更新时间 | 是 |
+| `current_candle` | 是否存在进行中的 K 线 | 否 |
+| `recent_cross` | 最近 10 根已收盘 K 线内 DIF 是否出现过穿越 | 否 |
+| `ema21_slope_pct` | 当前 EMA21 斜率（%/根），数据不足时为 `null` | 是 |
+| `ema21_slope_base_pct` | 此前 5 根已收盘 K 线的平均斜率（%/根），数据不足时为 `null` | 是 |
+| `ema21_slope_base_abs_pct` | 此前 5 根的平均斜率幅度（%/根），数据不足时为 `null` | 是 |
+| `ws_connected` | WebSocket 是否在线 | 是 |
+| `resync_pending` | 是否正在重同步 | 是 |
+| `volume` | 滚动 24h 成交量，见“列表成交量”一节 | 是 |
+| `volume_unit` | 成交量单位（币本位为“张”） | 是 |
+| `base_volume` | 基础资产数量（币本位为币数量） | 是 |
+| `quote_volume` | 成交额（币本位无，为 `null`） | 是 |
+| `base_asset` | 基础资产 | 是 |
+| `quote_asset` | 报价资产 | 是 |
+| `volume_updated_at` | 成交量获取时间（REST 响应接收时间） | 是 |
+| `volume_close_time` | 成交量窗口结束时间（币安 `closeTime`） | 是 |
+| `volume_stale` | 成交量是否超过三个刷新周期 | 是 |
+| `funding_rate` | 资金费率（正值表示多头付给空头） | 是 |
+| `next_funding_time` | 下次结算时间 | 是 |
+| `funding_updated_at` | 资金费率获取时间 | 是 |
+| `funding_stale` | 资金费率是否过期 | 是 |
 
 ## 列表成交量
 

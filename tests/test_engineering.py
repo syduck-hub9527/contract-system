@@ -302,6 +302,23 @@ class Lifecycle(unittest.TestCase):
         self.assertFalse(r._sockets)
 
 
+class ApiDocumentation(unittest.TestCase):
+    def test_readme_documents_every_api_field(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        section = re.search(r"^## 状态API字段\n(.*?)(?=^## )", readme, re.M | re.S).group(1)
+        top_part, row_part = section.split("`rows` 数组", 1)
+        documented_top = set(re.findall(r"^\| `(\w+)` \|", top_part, re.M))
+        documented_row = set(re.findall(r"^\| `(\w+)` \|", row_part, re.M))
+        self.assertEqual(len(documented_row), 33)
+
+        radar = Radar(("UM",))
+        key = ("UM", "TESTUSDT")
+        radar.states[key] = initialize_pair(*key, history(), BASE + 60000)
+        snap = radar.snapshot()
+        self.assertEqual(set(snap), documented_top)
+        self.assertEqual(set(snap["rows"][0]), documented_row)
+
+
 class ProcessLifecycle(unittest.TestCase):
     @unittest.skipUnless(__import__("os").name == "posix", "SIGTERM process check on POSIX")
     def test_real_process_handles_sigterm_without_network(self):

@@ -169,6 +169,10 @@ class Radar:
             self._error(f"{market} 资金费率接口有 {invalid} 条无效记录，保留上次数据直至过期")
 
     def _volume_loop(self):
+        """Periodic public-ticker refresh: 24h volume AND funding rate, one batch request per market each.
+
+        The name is kept for compatibility with tests and existing callers.
+        """
         while not self.stop_event.is_set():
             for market in self.enabled_markets:
                 with self.lock:

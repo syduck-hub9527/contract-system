@@ -74,3 +74,18 @@
 依赖固定在requirements.txt，安装包声明兼容范围；更新后需通过lint、单元/集成、轮子安装和UI哈希/交互检查。检查由本地命令手动执行。
 
 项目不保留部署与CI/CD文件（systemd/反向代理模板、GitHub Actions工作流、Docker相关配置）；后续维护不得将它们作为缺失文件恢复，除非用户明确改变这一要求。
+
+## 命名对照表
+
+| 位置 | 名称 |
+|---|---|
+| 仓库 | `contract-system` |
+| PyPI 包名（`pyproject.toml`） | `contract-system-radar` |
+| Python 模块 | `contract_radar` |
+| 命令行入口 | `contract-radar` |
+| 日志名 | `difradar` |
+| localStorage 键 | `difradar.slopeMult` / `difradar.slopeMin` |
+| User-Agent（`exchange.py`） | `contract-radar/<版本> (public market data)` |
+| 后台任务 | `_volume_loop`（同时刷新成交量与资金费率） |
+
+日志名、localStorage 键、`_volume_loop` 因测试与 UI 哈希锁定而保持原名，不随仓库名统一。

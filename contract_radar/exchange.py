@@ -8,6 +8,7 @@ import time
 
 import requests
 
+from . import __version__
 from .config import Settings
 
 
@@ -71,7 +72,7 @@ class RESTClient:
             thread = threading.current_thread()
             if thread not in self.sessions:
                 session = self.session_factory()
-                session.headers.update({"User-Agent": "DIF-Zero-Radar/1.0 (public market data)"})
+                session.headers.update({"User-Agent": f"contract-radar/{__version__} (public market data)"})
                 self.sessions[thread] = session
             return self.sessions[thread]
 
