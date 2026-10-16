@@ -7,6 +7,8 @@ INTERVAL_MS = 5 * 60 * 1000
 # incomplete-bucket bars = 574 minimum; 580 gives a two-bucket margin. The REST
 # limit weight becomes 5 for [500,1000), so request_spacing rises to 0.165s
 # (owner target: 60/0.165*5 + 50 = 1868 <= 1920 weight/min; measured 2026-10-15).
+# NOTE: the 15m indicator this sizing was derived for is not implemented in this
+# version; see "暖机长度与限流测算" in docs/architecture.md.
 CANDLE_LIMIT = 580
 WS_BATCH = 75  # 每条连接订阅较少币种，降低单条 WS 消息量
 MAX_FILL = 20000  # 长时间无成交的合约最多向前补齐的K线数，超出则跳过

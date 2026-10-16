@@ -35,7 +35,7 @@ python binance_live_dif.py --port 8888
 
 ## 运行原理
 
-- 启动时：REST 获取永续合约名单，每个合约获取580根5分钟K线（v4：按15m EMA50种子残留≤0.05%推导的暖机长度），以便计算EMA200与15m大周期指标，并显示初始化进度。
+- 启动时：REST 获取永续合约名单，每个合约获取580根5分钟K线并建立 EMA21/EMA50/EMA200，同时显示初始化进度。580根是 v4 按“15分钟 EMA50 种子残留≤0.05%”预留的暖机长度；当前版本尚未实现15m指标，该长度对5分钟 EMA21/EMA50 已远超所需，对 EMA200 的残留约0.3%。依据与限流测算见 [架构与维护说明](docs/architecture.md) 的“暖机长度与限流测算”一节。
 - 历史载入期间：逐批建立 WebSocket 订阅（不是反复下载CSV/Excel）。
 - 运行时：币安有新的K线数据就重新计算**盘中临时 DIF**；K线收盘 `x=true` 后再计算确认信号。
 - 浏览器：**每2秒**读取本机实时状态。网页版无需重新打开或按刷新。
@@ -119,7 +119,7 @@ python -m contract_radar
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
 | `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量刷新周期，允许30至300秒 |
-| `RADAR_REQUEST_SPACING` | 0.165 | 全局REST间隔/秒（v4：K线limit≥500对应权重5；0.165s使启动突发整分钟最坏1818+50=1868≤所有者目标1920，实测见00文档§3） |
+| `RADAR_REQUEST_SPACING` | 0.165 | 全局REST间隔/秒。K线limit≥500对应权重5；0.165s使启动突发整分钟最坏1818+50=1868≤所有者目标1920。测算见 docs/architecture.md“暖机长度与限流测算” |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
 | `RADAR_RESYNC_CAPACITY` | 1000 | 同步队列上限 |
