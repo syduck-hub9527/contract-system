@@ -89,7 +89,7 @@ class Settings:
 
 def parse_settings(argv=None, environ=None):
     env = os.environ if environ is None else environ
-    parser = argparse.ArgumentParser(description="Binance Futures 5m DIF live radar")
+    parser = argparse.ArgumentParser(description="Binance Futures 5m EMA21 surge radar")
     defaults = Settings()
     converters = {}
     for name in Settings.__dataclass_fields__:

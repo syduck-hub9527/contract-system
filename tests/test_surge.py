@@ -80,8 +80,9 @@ class Detection(unittest.TestCase):
         self.assertEqual((up["price"], up["gate"], up["threshold"]), (102.0, "min", 0.1))
         self.assertAlmostEqual(up["delta"], 100 * (2 / 22) * 2 / 100)
         self.assertEqual(up["volume_ratio"], 5.0)
-        self.assertEqual((up["above50"], up["above200"], up["dif_positive"]), (True, True, True))
-        self.assertEqual((down["above50"], down["dif_positive"]), (False, False))
+        self.assertEqual((up["above50"], up["above200"]), (True, True))
+        self.assertFalse(down["above50"])
+        self.assertNotIn("dif_positive", up)
 
     def test_server_rule_matches_the_page_rule(self):
         for price in (100.5, 101, 101.2, 102, 99, 98.8, 97):
@@ -135,14 +136,10 @@ class Detection(unittest.TestCase):
         self.r._sweep_surges()
         self.assertAlmostEqual(self.surges()[0]["ret_5m"], 0.0)
 
-    def test_kind_filter_and_restart_does_not_duplicate(self):
+    def test_snapshot_and_restart_does_not_duplicate(self):
         self.tick(102)
-        pair = replace(self.pair, confirmed="golden", confirmed_at=BASE)
-        with self.r.lock:
-            self.r._record_confirmed(KEY, pair)
         self.assertEqual([e["kind"] for e in self.r.events_snapshot("surge")["events"]], ["surge_up"])
-        self.assertEqual([e["kind"] for e in self.r.events_snapshot("cross")["events"]], ["golden"])
-        self.assertEqual(len(self.r.events_snapshot()["events"]), 2)
+        self.assertEqual(self.r.events_snapshot(), self.r.events_snapshot("surge"))
         self.r._load_persisted()  # marks persistence ready for this radar
         self.r.stop(timeout=1)  # flushes pending events to events.jsonl
         again = Radar(("UM",), settings=self.r.settings)

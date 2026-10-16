@@ -23,6 +23,12 @@ from contract_radar.web import create_server
 
 ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "contract_radar/assets/dashboard.html"
+DIF_FIELDS = ("closed_dif", "confirmed", "confirmed_at")  # 已删除的 DIF/交叉字段
+
+
+def legacy_without_dif(snapshot):
+    """旧版快照去掉已删除的 DIF/交叉字段后，其余 EMA 状态必须逐位一致。"""
+    return {k: v for k, v in snapshot.items() if k not in DIF_FIELDS}
 
 
 class Configuration(unittest.TestCase):
@@ -67,11 +73,10 @@ class IndicatorsAndUI(unittest.TestCase):
             p = initialize_pair("UM", "TESTUSDT", history(skip=case["skip"]), BASE + 60000)
             current = asdict(p)
             current.pop("live_updated_at")
-            current.pop("recent_dif")
             current.pop("recent_ema21")
             for added in ("last_close_price", "recent_volume", "live_volume"):  # v1.1 新增，不属于旧版快照
                 current.pop(added)
-            self.assertEqual(current, case["expected"], case["name"])
+            self.assertEqual(current, legacy_without_dif(case["expected"]), case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
                     update_pair(p, {"t": BASE, "c": str(price), "x": closed}, BASE + I), expected["result"]
@@ -80,16 +85,9 @@ class IndicatorsAndUI(unittest.TestCase):
                     {
                         k: v
                         for k, v in asdict(p).items()
-                        if k
-                        not in (
-                            "recent_dif",
-                            "recent_ema21",
-                            "last_close_price",
-                            "recent_volume",
-                            "live_volume",
-                        )
+                        if k not in ("recent_ema21", "last_close_price", "recent_volume", "live_volume")
                     },
-                    expected["pair"],
+                    legacy_without_dif(expected["pair"]),
                 )
 
     def test_ui_is_single_source_with_key_structure(self):
@@ -261,21 +259,20 @@ class Lifecycle(unittest.TestCase):
         self.assertFalse(r.states[("UM", "B")].resync_pending)
         r.stop(timeout=1)
 
-    def test_clock_and_stale_confirmed_signals(self):
+    def test_readiness_needs_fresh_connected_quotes(self):
         r = Radar(("UM",))
         now = BASE + I + 1000
         r.now_ms = lambda: now
         p = initialize_pair("UM", "T", history(), BASE + 60000)
-        p.confirmed = "golden"
-        p.confirmed_at = BASE + I
         p.live_updated_at = now
         p.ws_connected = True
         r.states[("UM", "T")] = p
         r.loaded = 1
-        self.assertEqual(r.snapshot()["rows"][0]["confirmed_cross"], "golden")
         self.assertTrue(r.health()["ready"])
         p.ws_connected = False
-        self.assertEqual(r.snapshot()["rows"][0]["confirmed_cross"], "")
+        self.assertFalse(r.health()["ready"])
+        p.ws_connected = True
+        p.live_updated_at = now - 91_000
         self.assertFalse(r.health()["ready"])
 
     def test_retired_full_group_is_closed_and_removed_from_counts(self):
@@ -342,7 +339,7 @@ class ApiDocumentation(unittest.TestCase):
         top_part, row_part = section.split("`rows` 数组", 1)
         documented_top = set(re.findall(r"^\| `(\w+)` \|", top_part, re.M))
         documented_row = set(re.findall(r"^\| `(\w+)` \|", row_part, re.M))
-        self.assertEqual(len(documented_row), 37)
+        self.assertEqual(len(documented_row), 30)
 
         radar = Radar(("UM",))
         key = ("UM", "TESTUSDT")

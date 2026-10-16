@@ -1,4 +1,4 @@
-"""v1.1: incremental catch-up, weighted pacing, persistence, signal events, live-cross age, mark-price funding."""
+"""v1.1: incremental catch-up, weighted pacing, persistence, websocket surge flow, mark-price funding."""
 
 import json
 import tempfile
@@ -16,7 +16,7 @@ from test_core import BASE, I, history, kline
 from contract_radar.config import Settings
 from contract_radar.exchange import Pace, RESTClient, request_weight
 from contract_radar.indicators import advance_pair, initialize_pair
-from contract_radar.service import EVENTS_FILE, STATE_FILE, Radar
+from contract_radar.service import STATE_FILE, Radar
 from contract_radar.web import create_server
 
 NOW = BASE + 60_000
@@ -47,16 +47,6 @@ class AdvancePair(unittest.TestCase):
         for back in (3, 12, 25):
             with self.subTest(back=back):
                 self.check_equivalent(rows, BASE - back * I)
-
-    def test_confirmed_signal_on_the_last_new_candle(self):
-        rows = [kline(BASE - (299 - i) * I, 100.0) for i in range(300)]
-        rows[-2] = kline(rows[-2][0], 160.0)  # last closed candle jumps -> DIF crosses up
-        before, after = split(rows, BASE - 10 * I)
-        initial = initialize_pair("UM", "T", before, BASE - 10 * I + 60_000)
-        advanced = advance_pair(initial, after, NOW)
-        self.assertEqual(advanced.confirmed, "golden")
-        self.assertEqual(advanced.confirmed_at, BASE)
-        self.assertEqual(advanced.last_close_price, 160.0)
 
     def test_requires_last_close_price(self):
         initial = replace(initialize_pair("UM", "T", history(), NOW), last_close_price=0.0)
@@ -205,67 +195,12 @@ class Persistence(unittest.TestCase):
         self.assertFalse(r._persist_loaded)
 
 
-class Events(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.r = Radar(("UM",), settings=replace(Settings(), data_dir=self.tmp.name))
-        self.r.now_ms = lambda: NOW
-
-    def tearDown(self):
-        self.r.stop(timeout=1)
-        self.tmp.cleanup()
-
-    def test_confirmed_cross_is_recorded_once_with_forward_returns(self):
-        key = ("UM", "T")
-        pair = replace(
-            initialize_pair(*key, history(), NOW),
-            confirmed="death",
-            confirmed_at=BASE,
-            last_close_price=100.0,
-        )
-        self.r._load_persisted()
-        with self.r.lock:
-            self.r._record_confirmed(key, pair)
-            self.r._record_confirmed(key, pair)
-        self.assertEqual(len(self.r.events), 1)
-        for n in range(1, 13):
-            pair = replace(pair, last_close_t=BASE - I + n * I, last_close_price=100.0 + n)
-            with self.r.lock:
-                self.r._advance_events(key, pair)
-        event = self.r.events_snapshot()["events"][0]
-        self.assertEqual((event["kind"], event["price"]), ("death", 100.0))
-        self.assertAlmostEqual(event["ret_15m"], 3.0)
-        self.assertAlmostEqual(event["ret_30m"], 6.0)
-        self.assertAlmostEqual(event["ret_60m"], 12.0)
-        self.assertTrue(event["done"])
-        self.assertFalse(self.r._pending_events)
-        self.r._persist()
-        lines = (Path(self.tmp.name) / EVENTS_FILE).read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(lines), 1)
-        reloaded = Radar(("UM",), settings=self.r.settings)
-        reloaded._load_persisted()
-        self.assertEqual(reloaded.events_snapshot()["events"][0]["ret_60m"], event["ret_60m"])
-        with reloaded.lock:  # the same candle is not recorded again after a restart
-            reloaded._record_confirmed(key, pair)
-        self.assertEqual(len(reloaded.events), 1)
-
-    def test_missed_closes_leave_returns_empty(self):
-        key = ("UM", "T")
-        pair = replace(initialize_pair(*key, history(), NOW), confirmed="golden", confirmed_at=BASE)
-        with self.r.lock:
-            self.r._record_confirmed(key, pair)
-            self.r._advance_events(key, replace(pair, last_close_t=BASE + 13 * I))
-        event = self.r.events[0]
-        self.assertEqual((event["ret_15m"], event["ret_60m"], event["done"]), (None, None, True))
-
-
-class LiveCrossAgeAndWebsocketEvents(unittest.TestCase):
-    def test_live_cross_since_is_stable_and_close_records_event(self):
+class WebsocketSurge(unittest.TestCase):
+    def test_surge_is_recorded_once_and_checked_at_the_close(self):
         r = Radar(("UM",))
         key = ("UM", "T")
-        pair = initialize_pair(*key, history(), NOW)
-        pair.ema21 = pair.ema50 = 100.0
-        pair.closed_dif = -1e-9
+        rows = [kline(BASE - (299 - i) * I, 100.0) for i in range(300)]
+        pair = initialize_pair(*key, rows, NOW)
         r.states[key] = pair
         r.symbol_ws[key] = "g"
         r.ws_online["g"] = False
@@ -273,9 +208,9 @@ class LiveCrossAgeAndWebsocketEvents(unittest.TestCase):
         r.now_ms = lambda: clock["now"]
 
         def message(price, closed):
-            return json.dumps({"e": "kline", "s": "T", "k": {"t": BASE, "c": price, "x": closed, "i": "5m"}})
-
-        seen = []
+            return json.dumps(
+                {"e": "kline", "s": "T", "k": {"t": BASE, "c": price, "v": "4", "x": closed, "i": "5m"}}
+            )
 
         class FakeWS:
             def __init__(self, url, **callbacks):
@@ -283,12 +218,10 @@ class LiveCrossAgeAndWebsocketEvents(unittest.TestCase):
 
             def run_forever(self, **kwargs):
                 self.callbacks["on_open"](self)
-                self.callbacks["on_message"](self, message("200", False))
-                seen.append(r.snapshot()["rows"][0])
+                self.callbacks["on_message"](self, message("102", False))
                 clock["now"] += 30_000
-                self.callbacks["on_message"](self, message("201", False))
-                seen.append(r.snapshot()["rows"][0])
-                self.callbacks["on_message"](self, message("202", True))
+                self.callbacks["on_message"](self, message("103", False))
+                self.callbacks["on_message"](self, message("102.5", True))
                 r.stop_event.set()
 
             def close(self, **kwargs):
@@ -296,13 +229,11 @@ class LiveCrossAgeAndWebsocketEvents(unittest.TestCase):
 
         with patch("contract_radar.service.websocket.WebSocketApp", FakeWS):
             r._ws_loop("UM", ["T"], "g")
-        self.assertEqual([row["live_cross"] for row in seen], ["golden", "golden"])
-        self.assertEqual([row["live_cross_since"] for row in seen], [BASE + 1000, BASE + 1000])
-        self.assertNotIn(key, r.live_since)
-        kinds = [e["kind"] for e in r.events]
-        self.assertEqual(kinds.count("surge_up"), 1)  # 价格跳升同时触发急拉，同一根K线只记一次
-        event = next(e for e in r.events if e["kind"] == "golden")
-        self.assertEqual((event["at"], event["price"]), (BASE + I, 202.0))
+        self.assertEqual([e["kind"] for e in r.events], ["surge_up"])
+        event = r.events[0]
+        self.assertEqual((event["at"], event["price"], event["held_at_close"]), (BASE + 1000, 102.0, True))
+        self.assertAlmostEqual(event["high_pct"], 100 * (103 / 102 - 1))
+        self.assertNotIn("live_cross", r.snapshot()["rows"][0])
 
 
 class MarkPriceFunding(unittest.TestCase):
@@ -359,11 +290,12 @@ class EventsEndpoint(unittest.TestCase):
                 radar._append_event(
                     {"market": "UM", "symbol": "A", "kind": "surge_up", "at": 1, "price": 1.0}
                 )
-                radar._append_event({"market": "UM", "symbol": "B", "kind": "golden", "at": 2, "price": 1.0})
+                radar._append_event(
+                    {"market": "UM", "symbol": "B", "kind": "surge_down", "at": 2, "price": 1.0}
+                )
             for query, kinds in (
-                ("?kind=surge", ["surge_up"]),
-                ("?kind=cross", ["golden"]),
-                ("", ["golden", "surge_up"]),
+                ("?kind=surge", ["surge_down", "surge_up"]),
+                ("", ["surge_down", "surge_up"]),
             ):
                 with urllib.request.urlopen(url + "/dif-api/events" + query) as response:
                     self.assertEqual([e["kind"] for e in json.load(response)["events"]], kinds)

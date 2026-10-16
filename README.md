@@ -1,11 +1,8 @@
-# 币安合约 5 分钟 DIF 实时监控
+# 币安合约 5 分钟 EMA21 急拉急跌监控
 
 实时扫描所有**交易中的永续合约**（默认 U 本位 + 币本位），页面专注于 **EMA21 急拉 / 急跌**，分为“EMA21 急拉”“EMA21 急跌”“信号记录”三个标签页。系统计算：
 
 - `EMA21`、`EMA50`、`EMA200`，均基于**5分钟收盘价**。
-- `DIF = EMA21 - EMA50`。
-- 价格归一化 `DIF% = (EMA21 - EMA50) / 最新价 × 100%`，用于不同币价之间的筛选。
-- **盘中 / 确认金叉死叉**：DIF 越过零轴。页面不再单独展示，仍在状态API（`live_cross`、`confirmed_cross`）与信号记录接口中提供。
 - 价格相对 EMA50（约4小时方向）与 EMA200（约1天方向）的位置，显示在“趋势”列；默认不强制过滤。
 - **EMA21 斜率突变（急拉 / 急跌）**：斜率 = EMA21 每根5分钟K线的变化百分比。把当前K线的斜率与**此前5根已收盘K线的平均斜率**比较，差值 `delta = 当前斜率 − 此前5根平均斜率`；当 `|delta| ≥ max(最小变化, 倍数 × 此前5根平均斜率幅度)` 时触发，`delta > 0` 为 **EMA21 急拉**（重大拉升），`delta < 0` 为 **EMA21 急跌**（重大下跌）。页面可调“斜率倍数”（默认3.0）与“最小变化”（默认0.100%）；刚转向（例如此前持续下行、现在突然上行）同样会触发。当前K线未收盘时用盘中EMA21，没有进行中的K线时用最近一根已收盘K线。
 - **24h 成交量**：列表中每个合约的滚动24小时成交量，以“万 / 亿”缩写显示，悬停可查看精确值；默认每60秒批量刷新。
@@ -49,7 +46,7 @@ python binance_live_dif.py --data-dir radar-data
 
 - 启动时：REST 获取永续合约名单，每个合约获取580根5分钟K线并建立 EMA21/EMA50/EMA200，同时显示初始化进度。580根是 v4 按“15分钟 EMA50 种子残留≤0.05%”预留的暖机长度；当前版本尚未实现15m指标，该长度对5分钟 EMA21/EMA50 已远超所需，对 EMA200 的残留约0.3%。依据与限流测算见 [架构与维护说明](docs/architecture.md) 的“暖机长度与限流测算”一节。
 - 历史载入期间：逐批建立 WebSocket 订阅（不是反复下载CSV/Excel）。
-- 运行时：币安有新的K线数据就重新计算**盘中临时 DIF**；K线收盘 `x=true` 后再计算确认信号。
+- 运行时：币安有新的K线数据就重新计算**盘中临时 EMA** 与 EMA21 斜率；K线收盘 `x=true` 后更新已收盘 EMA。
 - 浏览器：**每2秒**读取本机实时状态。网页版无需重新打开或按刷新。
 - 网络断线：WebSocket 自动重连；若有错过的整根5分钟K线，先只补拉缺失的K线（最多96根，请求权重1）并从原有 EMA 状态继续计算，结果与完整重算一致；不满足条件时才重新下载580根。
 - 时钟校准：启动时读取币安服务器时间，用它判断K线是否收盘，本机时钟快慢不会影响EMA。
@@ -65,7 +62,7 @@ python binance_live_dif.py --data-dir radar-data
 - 刚上市的合约可能没有210根完整5分钟K线，无法正常计算EMA200，会被略过；已跳过数量会显示。
 - 部分不活跃合约可能没有持续交易，因此最新K线时间会略旧。不要把过时数据当作即时信号。
 - 全球各地对币安 API 的网络访问可能不同。如果交易所服务在当前网络不可用，页面会显示连接异常；程序不能绕过当地法律或限制。
-- DIF金叉、死叉是行情辅助信号，不能保证盈利，特别是杠杆合约存在显著风险。
+- EMA21 急拉、急跌是行情辅助信号，不能保证盈利，特别是杠杆合约存在显著风险。
 
 ## 使用接口
 
@@ -76,7 +73,7 @@ python binance_live_dif.py --data-dir radar-data
 
 ## 技术说明
 
-`EMA(L) = EMA_previous + 2/(L+1) * (price - EMA_previous)`，历史上从首根收盘价初始化（部分看盘软件用 SMA 作起点，580 根之后 EMA200 残余差异约 0.3%，对 DIF 影响很小）；K线未收盘时使用最新K线价对上一根**已收盘**EMA作临时计算，**不**把盘中每个tick累加为新EMA。这样的算法可以避免一根K线内多次采样导致EMA计算错误。
+`EMA(L) = EMA_previous + 2/(L+1) * (price - EMA_previous)`，历史上从首根收盘价初始化（部分看盘软件用 SMA 作起点，580 根之后 EMA200 残余差异约 0.3%，对 EMA21 斜率影响很小）；K线未收盘时使用最新K线价对上一根**已收盘**EMA作临时计算，**不**把盘中每个tick累加为新EMA。这样的算法可以避免一根K线内多次采样导致EMA计算错误。
 
 
 ## 工程化运行
@@ -180,7 +177,7 @@ node tests/test_ui_v11.cjs
 
 ## 状态API字段
 
-`/api/state` 与 `/dif-api/state` 返回相同内容。字段只增不删；消费方应按名字访问，并容忍未来新增字段。
+`/api/state` 与 `/dif-api/state` 返回相同内容（`/dif-api` 只是沿用的路径名）。消费方应按名字访问，并容忍未来新增字段。本版本已删除 DIF 与金叉死叉相关字段（`dif`、`dif_pct`、`live_cross`、`confirmed_cross`、`confirmed_at`、`live_cross_since`、`recent_cross`）。
 
 顶层字段：
 
@@ -196,7 +193,7 @@ node tests/test_ui_v11.cjs
 | `errors` | 最近 3 条错误，新的在前 |
 | `rows` | 合约行数组 |
 
-`rows` 数组中每个合约行的字段（共 37 个）：
+`rows` 数组中每个合约行的字段（共 30 个）：
 
 | 字段 | 含义 | 前端是否使用 |
 |---|---|---|
@@ -206,18 +203,11 @@ node tests/test_ui_v11.cjs
 | `ema21` | 盘中 EMA21（用当前价对上一根已收盘 EMA 计算的临时值） | 否 |
 | `ema50` | 盘中 EMA50（同上） | 否 |
 | `ema200` | 盘中 EMA200（同上） | 否 |
-| `dif` | `ema21 − ema50`（盘中） | 否 |
-| `dif_pct` | `100 × dif / price` | 否 |
 | `above200` | `price > ema200` | 是 |
 | `above50` | `price > ema50`（盘中） | 是 |
 | `ema200_rising` | 已收盘 EMA200 是否高于前一根 | 否 |
-| `live_cross` | 盘中金叉/死叉，`golden` / `death` / 空串 | 是 |
-| `confirmed_cross` | 已确认金叉/死叉，仅在收盘后 5 分钟内出现 | 是 |
-| `confirmed_at` | 已确认信号所在K线的收盘时间（毫秒），无信号时为 0 | 是 |
-| `live_cross_since` | 当前盘中交叉在这根K线里首次出现的时间（毫秒），无交叉时为 0 | 是 |
 | `updated_at` | 最近一次行情更新时间 | 是 |
 | `current_candle` | 是否存在进行中的 K 线 | 否 |
-| `recent_cross` | 最近 10 根已收盘 K 线内 DIF 是否出现过穿越 | 否 |
 | `ema21_slope_pct` | 当前 EMA21 斜率（%/根），数据不足时为 `null` | 是 |
 | `ema21_slope_base_pct` | 此前 5 根已收盘 K 线的平均斜率（%/根），数据不足时为 `null` | 是 |
 | `ema21_slope_base_abs_pct` | 此前 5 根的平均斜率幅度（%/根），数据不足时为 `null` | 是 |
@@ -242,9 +232,9 @@ node tests/test_ui_v11.cjs
 
 ## 信号记录接口
 
-`/api/events` 与 `/dif-api/events` 返回 `{"server_time", "events"}`，`events` 为最近2000条记录，新的在前。加 `?kind=surge` 只返回急拉/急跌，`?kind=cross` 只返回已确认金叉/死叉。
+`/api/events` 与 `/dif-api/events` 返回 `{"server_time", "events"}`，`events` 为最近2000条急拉/急跌记录，新的在前（`?kind=surge` 为兼容保留，结果相同）。旧版本记录的金叉死叉事件在启动时不再载入。
 
-急拉 / 急跌记录（`kind` 为 `surge_up` / `surge_down`）的字段：
+每条记录的字段：
 
 | 字段 | 含义 |
 |---|---|
@@ -258,13 +248,11 @@ node tests/test_ui_v11.cjs
 | `threshold` / `gate` | 触发门槛，以及门槛由倍数（`mult`）还是最小变化（`min`）决定 |
 | `volume_ratio` | 触发时的量能倍数，数据不足时为 `null` |
 | `turnover` / `funding_rate` | 当时的24h成交额与资金费率，未知时为 `null` |
-| `above50` / `above200` / `dif_positive` | 触发时最新价是否在 EMA50、EMA200 上方，DIF 是否为正 |
+| `above50` / `above200` | 触发时最新价是否在 EMA50、EMA200 上方 |
 | `held_at_close` | 所在K线收盘时信号是否仍成立；未观察到收盘时为 `null` |
 | `ret_5m` / `ret_15m` / `ret_30m` / `ret_60m` | 触发后对应时间的价格相对 `price` 的涨跌幅（%，未按方向换算、未扣成本）；断线错过时为 `null` |
 | `high_pct` / `low_pct` | 触发后1小时内的最高、最低价相对 `price` 的涨跌幅（%） |
 | `done` | 是否已跟踪满1小时、不再更新 |
-
-已确认金叉/死叉记录（`kind` 为 `golden` / `death`）的字段：`id`、`market`、`symbol`、`kind`、`at`（信号K线收盘时间）、`price`（收盘价）、`turnover`、`funding_rate`、`ret_15m` / `ret_30m` / `ret_60m`（之后第3、6、12根K线收盘价的涨跌幅），以及 `done`。
 
 配置 `--data-dir` 时，结束的记录每60秒追加写入 `events.jsonl`（每行一条JSON），退出时未结束的记录也会写入；启动时读取最近2000条。
 

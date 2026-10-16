@@ -24,14 +24,6 @@ def history(count=300, last_open=BASE, skip=()):
     return [r for i, r in enumerate(rows) if i not in skip]
 
 
-class CrossTests(unittest.TestCase):
-    def test_golden_and_death(self):
-        self.assertEqual(bld.crossed(-1.0, 1.0), "golden")
-        self.assertEqual(bld.crossed(0.0, 1.0), "golden")
-        self.assertEqual(bld.crossed(1.0, -1.0), "death")
-        self.assertEqual(bld.crossed(1.0, 2.0), "")
-
-
 class ClockTests(unittest.TestCase):
     def test_running_candle_is_not_treated_as_closed(self):
         # 校准后的“当前时间”落在进行中K线内：它不能计入EMA

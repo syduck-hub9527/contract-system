@@ -8,7 +8,6 @@ from dataclasses import dataclass, field, replace
 
 from .constants import INTERVAL_MS, MAX_FILL
 
-RECENT_DIF_COUNT = 11  # 11 个已收盘 DIF 值 = 最近 10 根K线的 10 段变化
 SLOPE_BASE_COUNT = 5  # EMA21 斜率基准：对比此前 5 根已收盘K线的斜率
 RECENT_EMA21_COUNT = SLOPE_BASE_COUNT + 2  # 7 个已收盘 EMA21 = 6 段斜率（含刚收盘的一段）
 VOLUME_BASE_COUNT = 20  # 量能基准：此前 20 根已收盘K线的平均成交量
@@ -23,19 +22,15 @@ class Pair:
     ema50: float
     ema200: float
     previous_ema200: float
-    closed_dif: float
     live_t: int
     price: float
     live21: float
     live50: float
     live200: float
-    confirmed: str = ""
-    confirmed_at: int = 0
     live_updated_at: int = 0
     ws_connected: bool = False
     resync_pending: bool = False
     last_error: str = ""
-    recent_dif: list[float] = field(default_factory=list, repr=False)
     recent_ema21: list[float] = field(default_factory=list, repr=False)
     last_close_price: float = 0.0  # 最近一根已收盘K线的收盘价（增量补齐与信号记录用）
     recent_volume: list[float] = field(default_factory=list, repr=False)  # 最近已收盘K线成交量
@@ -71,20 +66,6 @@ def ema_update(previous: float, price: float, length: int) -> float:
     return previous + (2.0 / (length + 1.0)) * (price - previous)
 
 
-def crossed(before: float, after: float) -> str:
-    """正负跨越：等于0视作零轴一侧的端点。"""
-    if before <= 0.0 < after:
-        return "golden"
-    if before >= 0.0 > after:
-        return "death"
-    return ""
-
-
-def had_cross(difs: list[float]) -> bool:
-    """相邻已收盘 DIF 之间是否出现过金叉或死叉（与确认信号判断规则相同）。"""
-    return any(crossed(a, b) for a, b in zip(difs, difs[1:]))
-
-
 def slope_stats(closed_ema21: list[float], live21: float | None) -> dict:
     """EMA21 斜率（每根5分钟K线的变化百分比）及其相对前几根K线的变化。
 
@@ -109,7 +90,7 @@ def slope_stats(closed_ema21: list[float], live21: float | None) -> dict:
 
 
 def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None = None) -> Pair:
-    """历史完整K线建立EMA基准；未收盘K线只计算临时 DIF。"""
+    """历史完整K线建立EMA基准；未收盘K线只计算临时 EMA。"""
     if now_ms is None:
         now_ms = int(time.time() * 1000)
     if any(not isinstance(r, (list, tuple)) or len(r) < 7 for r in klines):
@@ -147,24 +128,13 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
 
     ema21 = ema50 = ema200 = series[0][1]
     previous_ema200 = None
-    previous_dif = None
-    difs: list[float] = []
     ema21s: list[float] = [ema21]
-    signal = ""
-    signal_at = 0
-    for idx, (open_t, close) in enumerate(series[1:], start=1):
+    for _open_t, close in series[1:]:
         previous_ema200 = ema200
         ema21 = ema_update(ema21, close, 21)
         ema50 = ema_update(ema50, close, 50)
         ema200 = ema_update(ema200, close, 200)
-        dif = ema21 - ema50
-        difs.append(dif)
         ema21s.append(ema21)
-        if previous_dif is not None and idx == len(series) - 1:
-            signal = crossed(previous_dif, dif)
-            if signal:
-                signal_at = open_t + INTERVAL_MS
-        previous_dif = dif
 
     closed_t, closed_price = series[-1]
     volumes = {int(r[0]): volume_of(r[5]) for r in complete}
@@ -187,16 +157,12 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         ema50=ema50,
         ema200=ema200,
         previous_ema200=previous_ema200 if previous_ema200 is not None else ema200,
-        closed_dif=ema21 - ema50,
         live_t=live_t,
         price=price,
         live21=ema_update(ema21, price, 21) if is_running_candle else ema21,
         live50=ema_update(ema50, price, 50) if is_running_candle else ema50,
         live200=ema_update(ema200, price, 200) if is_running_candle else ema200,
-        confirmed=signal,
-        confirmed_at=signal_at,
         live_updated_at=now_ms,
-        recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
         last_close_price=closed_price,
         recent_volume=recent_volume,
@@ -228,13 +194,8 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
     pair.live_volume = volume_of(k.get("v"))
 
     if k.get("x") is True:  # Binance: x=true 表示这一根K线已收盘
-        direction = crossed(pair.closed_dif, l21 - l50)
-        pair.confirmed = direction
-        pair.confirmed_at = t + INTERVAL_MS if direction else 0
         pair.previous_ema200 = pair.ema200
         pair.ema21, pair.ema50, pair.ema200 = l21, l50, l200
-        pair.closed_dif = l21 - l50
-        pair.recent_dif = (pair.recent_dif + [pair.closed_dif])[-RECENT_DIF_COUNT:]
         pair.recent_ema21 = (pair.recent_ema21 + [l21])[-RECENT_EMA21_COUNT:]
         pair.last_close_t = t
         pair.last_close_price = p
@@ -246,8 +207,8 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
 def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
     """在已有 EMA 状态上只补最近缺失的K线，返回新的 Pair（不修改传入对象）。
 
-    与 initialize_pair 使用同一套规则：无成交的K线用上一根收盘价补齐，
-    只为最后一根新收盘K线判断确认信号。逐根推进与从同一起点完整重算的结果逐位一致。
+    与 initialize_pair 使用同一套规则：无成交的K线用上一根收盘价补齐。
+    逐根推进与从同一起点完整重算的结果逐位一致。
     调用方必须保证 klines 覆盖 last_close_t 之后到当前的全部有成交K线（没有被 limit 截断）。
     """
     if now_ms is None:
@@ -290,22 +251,13 @@ def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
 
     ema21, ema50, ema200 = pair.ema21, pair.ema50, pair.ema200
     previous_ema200 = pair.previous_ema200
-    previous_dif = pair.closed_dif
-    difs = list(pair.recent_dif)
     ema21s = list(pair.recent_ema21)
-    confirmed, confirmed_at = pair.confirmed, pair.confirmed_at
-    for idx, (open_t, close) in enumerate(series):
+    for _open_t, close in series:
         previous_ema200 = ema200
         ema21 = ema_update(ema21, close, 21)
         ema50 = ema_update(ema50, close, 50)
         ema200 = ema_update(ema200, close, 200)
-        dif = ema21 - ema50
-        difs.append(dif)
         ema21s.append(ema21)
-        if idx == len(series) - 1:
-            confirmed = crossed(previous_dif, dif)
-            confirmed_at = open_t + INTERVAL_MS if confirmed else 0
-        previous_dif = dif
 
     closed_t, closed_price = series[-1] if series else (pair.last_close_t, pair.last_close_price)
     running = [r for r in rows if int(r[0]) > closed_t]
@@ -329,19 +281,15 @@ def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
         ema50=ema50,
         ema200=ema200,
         previous_ema200=previous_ema200,
-        closed_dif=ema21 - ema50,
         live_t=live_t,
         price=price,
         live21=ema_update(ema21, price, 21) if is_running else ema21,
         live50=ema_update(ema50, price, 50) if is_running else ema50,
         live200=ema_update(ema200, price, 200) if is_running else ema200,
-        confirmed=confirmed,
-        confirmed_at=confirmed_at,
         live_updated_at=now_ms,
         ws_connected=False,
         resync_pending=False,
         last_error="",
-        recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
         last_close_price=closed_price,
         recent_volume=recent_volume,

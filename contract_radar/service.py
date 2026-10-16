@@ -24,8 +24,6 @@ from .funding import Funding, missing_funding
 from .indicators import (
     Pair,
     advance_pair,
-    crossed,
-    had_cross,
     initialize_pair,
     slope_stats,
     update_pair,
@@ -37,7 +35,6 @@ LOG = logging.getLogger("difradar")
 
 CATCHUP_MAX = 96  # 增量补齐最多 96 根（8 小时）；limit ≤ 98 时K线接口权重为 1
 EVENT_HISTORY = 2000  # 内存中保留的信号事件条数
-EVENT_HORIZONS = ((3, "ret_15m"), (6, "ret_30m"), (12, "ret_60m"))  # 信号后第 N 根收盘的涨跌幅
 # 急拉/急跌：从触发时刻起按时间取价，并跟踪 1 小时内的最高与最低价
 SURGE_HORIZONS = ((300_000, "ret_5m"), (900_000, "ret_15m"), (1_800_000, "ret_30m"), (3_600_000, "ret_60m"))
 SURGE_WINDOW_MS = 3_600_000
@@ -86,10 +83,8 @@ class Radar:
         self.resync_incremental = 0
         self.resync_full = 0
         self.warm_loaded = 0
-        self.live_since: dict[tuple[str, str], tuple[str, int, int]] = {}  # 方向, live_t, 首次出现时间
         self.events: deque[dict[str, Any]] = deque(maxlen=EVENT_HISTORY)
         self._event_keys: set[tuple[str, str, int]] = set()
-        self._pending_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._pending_surges: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._surge_candle: dict[tuple[str, str], tuple[int, set[str]]] = {}  # 每根K线每个方向只记一次
         self._event_outbox: list[dict[str, Any]] = []
@@ -308,7 +303,6 @@ class Radar:
                             pair.ema50,
                             pair.ema200,
                             pair.last_close_price,
-                            pair.closed_dif,
                         )
                         if pair.market not in self.enabled_markets or pair.last_close_t % INTERVAL_MS:
                             continue
@@ -330,7 +324,11 @@ class Radar:
                         event = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(event, dict) and {"market", "symbol", "kind", "at", "price"} <= set(event):
+                    if (
+                        isinstance(event, dict)
+                        and {"market", "symbol", "kind", "at", "price"} <= set(event)
+                        and event["kind"] in SURGE_KINDS.values()  # 旧版本记录的交叉事件不再载入
+                    ):
                         events.append(event)
         except FileNotFoundError:
             pass
@@ -404,79 +402,27 @@ class Radar:
             return volume.quote_volume
         return volume.base_volume * price
 
-    def _record_confirmed(self, key, pair):
-        """把一根K线收盘确认的金叉/死叉记为事件（同一合约同一根K线只记一次）。调用方持有锁。"""
-        if not pair.confirmed or not pair.confirmed_at or pair.last_close_price <= 0:
-            return
-        if (key[0], key[1], pair.confirmed_at) in self._event_keys:
-            return
-        funding = self.fundings.get(key)
-        self._event_seq += 1
-        event = {
-            "id": self._event_seq,
-            "market": key[0],
-            "symbol": key[1],
-            "kind": pair.confirmed,
-            "at": pair.confirmed_at,
-            "price": pair.last_close_price,
-            "turnover": self._notional(key, pair.last_close_price),
-            "funding_rate": funding.rate if funding is not None else None,
-            **{name: None for _, name in EVENT_HORIZONS},
-            "done": False,
-        }
-        self._append_event(event)
-        self._pending_events.setdefault(key, []).append(event)
-
-    def _advance_events(self, key, pair):
-        """每根K线收盘后，为该合约尚未结束的事件填写第 3/6/12 根收盘的涨跌幅。调用方持有锁。"""
-        pending = self._pending_events.get(key)
-        if not pending:
-            return
-        close_t = pair.last_close_t + INTERVAL_MS
-        keep = []
-        for event in pending:
-            n = (close_t - event["at"]) // INTERVAL_MS
-            for horizon, name in EVENT_HORIZONS:
-                if n == horizon and event[name] is None:
-                    event[name] = 100.0 * (pair.last_close_price / event["price"] - 1.0)
-            if n >= EVENT_HORIZONS[-1][0]:
-                self._finish_event(event)
-            else:
-                keep.append(event)
-        if keep:
-            self._pending_events[key] = keep
-        else:
-            self._pending_events.pop(key, None)
-
     def _finish_event(self, event):
         event["done"] = True
         self._event_outbox.append(dict(event))
 
     def _drop_events(self, key):
-        for event in self._pending_events.pop(key, []) + self._pending_surges.pop(key, []):
+        for event in self._pending_surges.pop(key, []):
             self._finish_event(event)
         self._surge_candle.pop(key, None)
 
     def events_snapshot(self, kind: str = "") -> dict[str, Any]:
-        """全部信号事件，新的在前；kind="surge" 只返回急拉/急跌，kind="cross" 只返回已确认交叉。"""
-        wanted = {
-            "surge": set(SURGE_KINDS.values()),
-            "cross": {"golden", "death"},
-        }.get(kind)
+        """急拉/急跌记录，新的在前。kind 参数为兼容保留（"surge" 或空），记录只有这一类。"""
         with self.lock:
-            events = [dict(e) for e in reversed(self.events) if wanted is None or e["kind"] in wanted]
-            return {"server_time": self.now_ms(), "events": events}
+            return {"server_time": self.now_ms(), "events": [dict(e) for e in reversed(self.events)]}
 
     # ---- EMA21 急拉 / 急跌 ----
 
     def _on_tick(self, key, state, now, closed):
         """一条K线推送更新后的服务端处理。调用方持有锁。"""
-        self._track_live(key, state, now)
         self._track_surges(key, state.price, now)
         if closed:
             self._close_surges(key, state)
-            self._record_confirmed(key, state)
-            self._advance_events(key, state)
         else:
             self._detect_surge(key, state, now)
 
@@ -527,7 +473,6 @@ class Radar:
             "funding_rate": funding.rate if funding is not None else None,
             "above50": state.price > state.live50,
             "above200": state.price > state.live200,
-            "dif_positive": state.live21 > state.live50,
             "held_at_close": None,
             **{name: None for _, name in SURGE_HORIZONS},
             "high_pct": 0.0,
@@ -590,17 +535,6 @@ class Radar:
                         self._pending_surges[key].remove(event)
                     if not self._pending_surges[key]:
                         self._pending_surges.pop(key)
-
-    def _track_live(self, key, state, now):
-        """记录盘中交叉在当前这根K线里首次出现的时间。调用方持有锁。"""
-        if state.live_t > state.last_close_t:
-            direction = crossed(state.closed_dif, state.live21 - state.live50)
-            if direction:
-                previous = self.live_since.get(key)
-                if not previous or previous[0] != direction or previous[1] != state.live_t:
-                    self.live_since[key] = (direction, state.live_t, now)
-                return
-        self.live_since.pop(key, None)
 
     # ---- U本位资金费率：标记价格流 ----
 
@@ -724,7 +658,7 @@ class Radar:
                 thread.join(max(0, deadline - time.monotonic()))
         self.client.close()
         with self.lock:
-            for key in list(self._pending_events) + list(self._pending_surges):
+            for key in list(self._pending_surges):
                 self._drop_events(key)
         self._persist()
         with self.lock:
@@ -824,7 +758,6 @@ class Radar:
                     with self.lock:
                         self.states[(market, sym)] = pair
                         self.loaded += 1
-                        self._record_confirmed((market, sym), pair)
                     batches[market].append(sym)
                     if len(batches[market]) >= self.settings.ws_batch:
                         self._start_ws(market, batches[market])
@@ -872,7 +805,6 @@ class Radar:
                 self.states.pop(key, None)
                 self.symbol_ws.pop(key, None)
                 self.gap_resync_counts.pop(key, None)
-                self.live_since.pop(key, None)
                 self._drop_events(key)
         if gone:
             with self.lock:
@@ -1037,9 +969,6 @@ class Radar:
                         # 旧 socket 一般仍在线，重新计算后等待下一次K线推送
                         refreshed.ws_connected = bool(self.ws_online.get(self.symbol_ws.get(key, ""), False))
                         self.states[key] = refreshed
-                        self.live_since.pop(key, None)
-                        self._record_confirmed(key, refreshed)
-                        self._advance_events(key, refreshed)
                         if incremental:
                             self.resync_incremental += 1
                         else:
@@ -1067,29 +996,6 @@ class Radar:
             for state in states:
                 if state.price <= 0:
                     continue
-                dif = state.live21 - state.live50
-                dif_pct = 100.0 * dif / state.price
-                fresh_live = (
-                    state.ws_connected
-                    and not state.resync_pending
-                    and 0 <= now - state.live_updated_at <= 90_000
-                )
-                live_cross = (
-                    crossed(state.closed_dif, dif) if fresh_live and state.live_t > state.last_close_t else ""
-                )
-                key = (state.market, state.symbol)
-                live_since = 0
-                if live_cross:
-                    record = self.live_since.get(key)
-                    if not record or record[0] != live_cross or record[1] != state.live_t:
-                        record = (live_cross, state.live_t, now)
-                        self.live_since[key] = record
-                    live_since = record[2]
-                confirmed = (
-                    state.confirmed
-                    if fresh_live and state.confirmed_at and 0 <= now - state.confirmed_at <= INTERVAL_MS
-                    else ""
-                )
                 rows.append(
                     {
                         "market": state.market,
@@ -1098,8 +1004,6 @@ class Radar:
                         "ema21": state.live21,
                         "ema50": state.live50,
                         "ema200": state.live200,
-                        "dif": dif,
-                        "dif_pct": dif_pct,
                         "above200": state.price > state.live200,
                         "above50": state.price > state.live50,
                         "volume_ratio": volume_ratio(
@@ -1107,13 +1011,8 @@ class Radar:
                             state.live_volume if state.live_t > state.last_close_t else None,
                         ),
                         "ema200_rising": state.ema200 > state.previous_ema200,
-                        "live_cross": live_cross,
-                        "confirmed_cross": confirmed,
-                        "confirmed_at": state.confirmed_at if confirmed else 0,
-                        "live_cross_since": live_since,
                         "updated_at": state.live_updated_at,
                         "current_candle": state.live_t > state.last_close_t,
-                        "recent_cross": had_cross(state.recent_dif),
                         **slope_stats(
                             state.recent_ema21,
                             state.live21 if state.live_t > state.last_close_t else None,
@@ -1124,7 +1023,7 @@ class Radar:
                         **self._funding_snapshot(state, now),
                     }
                 )
-            rows.sort(key=lambda x: abs(x["dif_pct"]))
+            rows.sort(key=lambda x: (x["market"], x["symbol"]))
             online = sum(1 for connected in self.ws_online.values() if connected)
             return {
                 "server_time": now,

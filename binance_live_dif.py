@@ -11,7 +11,7 @@ from contract_radar.constants import (
     WS_BATCH,
 )
 from contract_radar.exchange import Pace
-from contract_radar.indicators import Pair, crossed, ema_update, initialize_pair, update_pair
+from contract_radar.indicators import Pair, ema_update, initialize_pair, update_pair
 from contract_radar.service import Radar
 from contract_radar.web import HTTPHandler
 
@@ -21,7 +21,6 @@ __all__ = [
     "Pace",
     "Pair",
     "HTTPHandler",
-    "crossed",
     "ema_update",
     "initialize_pair",
     "update_pair",
