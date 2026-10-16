@@ -299,8 +299,10 @@ class LiveCrossAgeAndWebsocketEvents(unittest.TestCase):
         self.assertEqual([row["live_cross"] for row in seen], ["golden", "golden"])
         self.assertEqual([row["live_cross_since"] for row in seen], [BASE + 1000, BASE + 1000])
         self.assertNotIn(key, r.live_since)
-        event = r.events[0]
-        self.assertEqual((event["kind"], event["at"], event["price"]), ("golden", BASE + I, 202.0))
+        kinds = [e["kind"] for e in r.events]
+        self.assertEqual(kinds.count("surge_up"), 1)  # 价格跳升同时触发急拉，同一根K线只记一次
+        event = next(e for e in r.events if e["kind"] == "golden")
+        self.assertEqual((event["at"], event["price"]), (BASE + I, 202.0))
 
 
 class MarkPriceFunding(unittest.TestCase):

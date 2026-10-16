@@ -11,6 +11,7 @@ from .constants import INTERVAL_MS, MAX_FILL
 RECENT_DIF_COUNT = 11  # 11 个已收盘 DIF 值 = 最近 10 根K线的 10 段变化
 SLOPE_BASE_COUNT = 5  # EMA21 斜率基准：对比此前 5 根已收盘K线的斜率
 RECENT_EMA21_COUNT = SLOPE_BASE_COUNT + 2  # 7 个已收盘 EMA21 = 6 段斜率（含刚收盘的一段）
+VOLUME_BASE_COUNT = 20  # 量能基准：此前 20 根已收盘K线的平均成交量
 
 
 @dataclass
@@ -37,6 +38,33 @@ class Pair:
     recent_dif: list[float] = field(default_factory=list, repr=False)
     recent_ema21: list[float] = field(default_factory=list, repr=False)
     last_close_price: float = 0.0  # 最近一根已收盘K线的收盘价（增量补齐与信号记录用）
+    recent_volume: list[float] = field(default_factory=list, repr=False)  # 最近已收盘K线成交量
+    live_volume: float = 0.0  # 进行中K线到目前为止的成交量
+
+
+def volume_of(value) -> float:
+    """K线成交量；缺失或非法时按 0 处理，不让成交量问题影响 EMA。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) and number >= 0 else 0.0
+
+
+def volume_ratio(recent: list[float], live: float | None) -> float | None:
+    """当前K线成交量是此前 20 根已收盘K线平均成交量的几倍。
+
+    有进行中的K线（live 不为 None）：用它到目前为止的成交量，与最近 20 根比较；
+    没有进行中的K线：用最近一根已收盘K线，与它之前的 20 根比较。基准为 0 时返回 None。
+    """
+    if live is None:
+        if len(recent) < 2:
+            return None
+        current, base = recent[-1], recent[-1 - VOLUME_BASE_COUNT : -1]
+    else:
+        current, base = live, recent[-VOLUME_BASE_COUNT:]
+    average = sum(base) / len(base) if base else 0.0
+    return current / average if average > 0 else None
 
 
 def ema_update(previous: float, price: float, length: int) -> float:
@@ -139,6 +167,8 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         previous_dif = dif
 
     closed_t, closed_price = series[-1]
+    volumes = {int(r[0]): volume_of(r[5]) for r in complete}
+    recent_volume = [volumes.get(t, 0.0) for t, _ in series[-(VOLUME_BASE_COUNT + 1) :]]
     curr_rows = [r for r in rows if int(r[0]) > closed_t]
     if curr_rows:
         price = float(curr_rows[-1][4])
@@ -169,6 +199,8 @@ def initialize_pair(market: str, symbol: str, klines: list, now_ms: int | None =
         recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
         last_close_price=closed_price,
+        recent_volume=recent_volume,
+        live_volume=volume_of(curr_rows[-1][5]) if is_running_candle else 0.0,
     )
     return pair
 
@@ -193,6 +225,7 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
     pair.price = p
     pair.live21, pair.live50, pair.live200 = l21, l50, l200
     pair.live_updated_at = now_ms
+    pair.live_volume = volume_of(k.get("v"))
 
     if k.get("x") is True:  # Binance: x=true 表示这一根K线已收盘
         direction = crossed(pair.closed_dif, l21 - l50)
@@ -205,6 +238,8 @@ def update_pair(pair: Pair, k: dict, now_ms: int | None = None) -> str:
         pair.recent_ema21 = (pair.recent_ema21 + [l21])[-RECENT_EMA21_COUNT:]
         pair.last_close_t = t
         pair.last_close_price = p
+        pair.recent_volume = (pair.recent_volume + [pair.live_volume])[-(VOLUME_BASE_COUNT + 1) :]
+        pair.live_volume = 0.0
     return "ok"
 
 
@@ -230,6 +265,7 @@ def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
         raise ValueError("状态时间晚于当前K线")
 
     series: list[tuple[int, float]] = []
+    volumes = {int(r[0]): volume_of(r[5]) for r in rows if int(r[6]) < now_ms}
     last_t, last_close = pair.last_close_t, pair.last_close_price
     filled = 0
     for row in rows:
@@ -283,6 +319,9 @@ def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
     else:
         price, live_t = pair.price, pair.live_t
     is_running = live_t > closed_t
+    recent_volume = (list(pair.recent_volume) + [volumes.get(t, 0.0) for t, _ in series])[
+        -(VOLUME_BASE_COUNT + 1) :
+    ]
     return replace(
         pair,
         last_close_t=closed_t,
@@ -305,4 +344,6 @@ def advance_pair(pair: Pair, klines: list, now_ms: int | None = None) -> Pair:
         recent_dif=difs[-RECENT_DIF_COUNT:],
         recent_ema21=ema21s[-RECENT_EMA21_COUNT:],
         last_close_price=closed_price,
+        recent_volume=recent_volume,
+        live_volume=volume_of(running[-1][5]) if running else (pair.live_volume if not series else 0.0),
     )

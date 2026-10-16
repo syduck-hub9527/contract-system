@@ -69,7 +69,8 @@ class IndicatorsAndUI(unittest.TestCase):
             current.pop("live_updated_at")
             current.pop("recent_dif")
             current.pop("recent_ema21")
-            current.pop("last_close_price")  # v1.1 新增的记账字段，不属于旧版快照
+            for added in ("last_close_price", "recent_volume", "live_volume"):  # v1.1 新增，不属于旧版快照
+                current.pop(added)
             self.assertEqual(current, case["expected"], case["name"])
             for price, closed, expected in zip([90, 125, 105], [False, False, True], case["updates"]):
                 self.assertEqual(
@@ -79,7 +80,14 @@ class IndicatorsAndUI(unittest.TestCase):
                     {
                         k: v
                         for k, v in asdict(p).items()
-                        if k not in ("recent_dif", "recent_ema21", "last_close_price")
+                        if k
+                        not in (
+                            "recent_dif",
+                            "recent_ema21",
+                            "last_close_price",
+                            "recent_volume",
+                            "live_volume",
+                        )
                     },
                     expected["pair"],
                 )
@@ -334,7 +342,7 @@ class ApiDocumentation(unittest.TestCase):
         top_part, row_part = section.split("`rows` 数组", 1)
         documented_top = set(re.findall(r"^\| `(\w+)` \|", top_part, re.M))
         documented_row = set(re.findall(r"^\| `(\w+)` \|", row_part, re.M))
-        self.assertEqual(len(documented_row), 35)
+        self.assertEqual(len(documented_row), 37)
 
         radar = Radar(("UM",))
         key = ("UM", "TESTUSDT")

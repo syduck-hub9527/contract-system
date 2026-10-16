@@ -196,7 +196,7 @@ node tests/test_ui_v11.cjs
 | `errors` | 最近 3 条错误，新的在前 |
 | `rows` | 合约行数组 |
 
-`rows` 数组中每个合约行的字段（共 35 个）：
+`rows` 数组中每个合约行的字段（共 37 个）：
 
 | 字段 | 含义 | 前端是否使用 |
 |---|---|---|
@@ -209,6 +209,7 @@ node tests/test_ui_v11.cjs
 | `dif` | `ema21 − ema50`（盘中） | 否 |
 | `dif_pct` | `100 × dif / price` | 否 |
 | `above200` | `price > ema200` | 是 |
+| `above50` | `price > ema50`（盘中） | 是 |
 | `ema200_rising` | 已收盘 EMA200 是否高于前一根 | 否 |
 | `live_cross` | 盘中金叉/死叉，`golden` / `death` / 空串 | 是 |
 | `confirmed_cross` | 已确认金叉/死叉，仅在收盘后 5 分钟内出现 | 是 |
@@ -231,6 +232,7 @@ node tests/test_ui_v11.cjs
 | `volume_updated_at` | 成交量获取时间（REST 响应接收时间） | 是 |
 | `volume_close_time` | 成交量窗口结束时间（币安 `closeTime`） | 是 |
 | `volume_stale` | 成交量是否超过三个刷新周期 | 是 |
+| `volume_ratio` | 量能倍数：当前K线到目前为止的成交量 ÷ 此前20根已收盘K线平均成交量；没有进行中的K线时为最近一根已收盘K线与其之前20根相比；基准为0时为 `null` | 是 |
 | `funding_rate` | 最近更新的资金费率（U本位来自标记价格流 `r`，币本位来自 `premiumIndex.lastFundingRate`；正值表示多头付给空头） | 是 |
 | `next_funding_time` | 下次结算时间 | 是 |
 | `funding_updated_at` | 资金费率获取时间 | 是 |

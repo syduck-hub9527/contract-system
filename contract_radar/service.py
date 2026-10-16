@@ -21,14 +21,27 @@ from .config import Settings
 from .constants import CANDLE_LIMIT, INTERVAL_MS, MARKETS
 from .exchange import RESTClient, Stopped
 from .funding import Funding, missing_funding
-from .indicators import Pair, advance_pair, crossed, had_cross, initialize_pair, slope_stats, update_pair
+from .indicators import (
+    Pair,
+    advance_pair,
+    crossed,
+    had_cross,
+    initialize_pair,
+    slope_stats,
+    update_pair,
+    volume_ratio,
+)
 from .volume import Volume, missing_volume
 
 LOG = logging.getLogger("difradar")
 
 CATCHUP_MAX = 96  # 增量补齐最多 96 根（8 小时）；limit ≤ 98 时K线接口权重为 1
-EVENT_HISTORY = 500  # 内存中保留的信号事件条数
+EVENT_HISTORY = 2000  # 内存中保留的信号事件条数
 EVENT_HORIZONS = ((3, "ret_15m"), (6, "ret_30m"), (12, "ret_60m"))  # 信号后第 N 根收盘的涨跌幅
+# 急拉/急跌：从触发时刻起按时间取价，并跟踪 1 小时内的最高与最低价
+SURGE_HORIZONS = ((300_000, "ret_5m"), (900_000, "ret_15m"), (1_800_000, "ret_30m"), (3_600_000, "ret_60m"))
+SURGE_WINDOW_MS = 3_600_000
+SURGE_KINDS = {"up": "surge_up", "down": "surge_down"}
 STATE_FILE = "state.json"
 EVENTS_FILE = "events.jsonl"
 STATE_VERSION = 1
@@ -77,6 +90,8 @@ class Radar:
         self.events: deque[dict[str, Any]] = deque(maxlen=EVENT_HISTORY)
         self._event_keys: set[tuple[str, str, int]] = set()
         self._pending_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._pending_surges: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._surge_candle: dict[tuple[str, str], tuple[int, set[str]]] = {}  # 每根K线每个方向只记一次
         self._event_outbox: list[dict[str, Any]] = []
         self._event_seq = 0
         self.mark_stream_at = 0
@@ -204,6 +219,7 @@ class Radar:
         The name is kept for compatibility with tests and existing callers.
         """
         while not self.stop_event.is_set():
+            self._sweep_surges()
             for market in self.enabled_markets:
                 with self.lock:
                     listed = any(key[0] == market for key in self.symbol_metadata)
@@ -326,6 +342,14 @@ class Radar:
                 event["done"] = True
                 self._append_event(event)
                 self._event_seq = max(self._event_seq, int(event.get("id", 0) or 0))
+                direction = {v: k for k, v in SURGE_KINDS.items()}.get(event["kind"])
+                if direction and isinstance(event.get("candle_t"), int):
+                    key = (event["market"], event["symbol"])
+                    seen = self._surge_candle.get(key)
+                    if seen and seen[0] == event["candle_t"]:
+                        seen[1].add(direction)
+                    elif not seen or seen[0] < event["candle_t"]:
+                        self._surge_candle[key] = (event["candle_t"], {direction})
             self._persist_loaded = True
         if saved:
             LOG.info("读取到 %d 个合约的保存状态，将尝试增量恢复", len(saved))
@@ -429,12 +453,143 @@ class Radar:
         self._event_outbox.append(dict(event))
 
     def _drop_events(self, key):
-        for event in self._pending_events.pop(key, []):
+        for event in self._pending_events.pop(key, []) + self._pending_surges.pop(key, []):
             self._finish_event(event)
+        self._surge_candle.pop(key, None)
 
-    def events_snapshot(self) -> dict[str, Any]:
+    def events_snapshot(self, kind: str = "") -> dict[str, Any]:
+        """全部信号事件，新的在前；kind="surge" 只返回急拉/急跌，kind="cross" 只返回已确认交叉。"""
+        wanted = {
+            "surge": set(SURGE_KINDS.values()),
+            "cross": {"golden", "death"},
+        }.get(kind)
         with self.lock:
-            return {"server_time": self.now_ms(), "events": [dict(e) for e in reversed(self.events)]}
+            events = [dict(e) for e in reversed(self.events) if wanted is None or e["kind"] in wanted]
+            return {"server_time": self.now_ms(), "events": events}
+
+    # ---- EMA21 急拉 / 急跌 ----
+
+    def _on_tick(self, key, state, now, closed):
+        """一条K线推送更新后的服务端处理。调用方持有锁。"""
+        self._track_live(key, state, now)
+        self._track_surges(key, state.price, now)
+        if closed:
+            self._close_surges(key, state)
+            self._record_confirmed(key, state)
+            self._advance_events(key, state)
+        else:
+            self._detect_surge(key, state, now)
+
+    def _surge_test(self, stats):
+        """与页面相同的判定：|delta| >= max(最小变化, 倍数 × 此前5根平均斜率幅度)。"""
+        if stats["ema21_slope_pct"] is None:
+            return None
+        delta = stats["ema21_slope_pct"] - stats["ema21_slope_base_pct"]
+        mult_gate = self.settings.slope_mult * stats["ema21_slope_base_abs_pct"]
+        threshold = max(self.settings.slope_min, mult_gate)
+        direction = ("up" if delta > 0 else "down") if abs(delta) >= threshold else ""
+        return direction, delta, threshold, "mult" if mult_gate >= self.settings.slope_min else "min"
+
+    def _detect_surge(self, key, state, now):
+        """进行中的K线首次满足急拉/急跌条件时记录一条事件（同一根K线同一方向只记一次）。"""
+        if state.live_t <= state.last_close_t:
+            return
+        stats = slope_stats(state.recent_ema21, state.live21)
+        result = self._surge_test(stats)
+        if not result or not result[0]:
+            return
+        direction, delta, threshold, gate = result
+        seen = self._surge_candle.get(key)
+        if seen and seen[0] == state.live_t:
+            if direction in seen[1]:
+                return
+            seen[1].add(direction)
+        else:
+            self._surge_candle[key] = (state.live_t, {direction})
+        funding = self.fundings.get(key)
+        self._event_seq += 1
+        event = {
+            "id": self._event_seq,
+            "market": key[0],
+            "symbol": key[1],
+            "kind": SURGE_KINDS[direction],
+            "at": now,
+            "candle_t": state.live_t,
+            "elapsed_s": max(0, round((now - state.live_t) / 1000)),
+            "price": state.price,
+            "slope": stats["ema21_slope_pct"],
+            "base": stats["ema21_slope_base_pct"],
+            "delta": delta,
+            "threshold": threshold,
+            "gate": gate,
+            "volume_ratio": volume_ratio(state.recent_volume, state.live_volume),
+            "turnover": self._notional(key, state.price),
+            "funding_rate": funding.rate if funding is not None else None,
+            "above50": state.price > state.live50,
+            "above200": state.price > state.live200,
+            "dif_positive": state.live21 > state.live50,
+            "held_at_close": None,
+            **{name: None for _, name in SURGE_HORIZONS},
+            "high_pct": 0.0,
+            "low_pct": 0.0,
+            "done": False,
+        }
+        self._append_event(event)
+        self._pending_surges.setdefault(key, []).append(event)
+
+    def _track_surges(self, key, price, now):
+        """用最新价更新该合约未结束的急拉/急跌事件：到点取价，并记录 1 小时内的最高、最低。"""
+        pending = self._pending_surges.get(key)
+        if not pending or price <= 0:
+            return
+        keep = []
+        for event in pending:
+            age = now - event["at"]
+            change = 100.0 * (price / event["price"] - 1.0)
+            if age <= SURGE_WINDOW_MS:
+                event["high_pct"] = max(event["high_pct"], change)
+                event["low_pct"] = min(event["low_pct"], change)
+            for horizon, name in SURGE_HORIZONS:
+                if event[name] is None and age >= horizon:
+                    event[name] = change
+            if age >= SURGE_WINDOW_MS:
+                self._finish_event(event)
+            else:
+                keep.append(event)
+        if keep:
+            self._pending_surges[key] = keep
+        else:
+            self._pending_surges.pop(key, None)
+
+    def _close_surges(self, key, state):
+        """触发所在的K线收盘时，判断信号是否仍然成立（用收盘后的已收盘斜率）。"""
+        pending = self._pending_surges.get(key)
+        if not pending:
+            return
+        result = self._surge_test(slope_stats(state.recent_ema21, None))
+        for event in pending:
+            if event["candle_t"] == state.last_close_t and event["held_at_close"] is None:
+                direction = {v: k for k, v in SURGE_KINDS.items()}[event["kind"]]
+                event["held_at_close"] = bool(result) and result[0] == direction
+
+    def _sweep_surges(self):
+        """没有新成交的合约收不到推送：价格未变，按当前价补上到点的数据；断线中的不补。"""
+        now = self.now_ms()
+        with self.lock:
+            for key in list(self._pending_surges):
+                state = self.states.get(key)
+                if state is None:
+                    for event in self._pending_surges.pop(key):
+                        self._finish_event(event)
+                elif state.ws_connected and not state.resync_pending:
+                    self._track_surges(key, state.price, now)
+                else:
+                    stale = [e for e in self._pending_surges[key] if now - e["at"] > SURGE_WINDOW_MS * 2]
+                    for event in stale:
+                        self._finish_event(event)
+                        self._pending_surges[key].remove(event)
+                    if not self._pending_surges[key]:
+                        self._pending_surges.pop(key)
 
     def _track_live(self, key, state, now):
         """记录盘中交叉在当前这根K线里首次出现的时间。调用方持有锁。"""
@@ -569,7 +724,7 @@ class Radar:
                 thread.join(max(0, deadline - time.monotonic()))
         self.client.close()
         with self.lock:
-            for key in list(self._pending_events):
+            for key in list(self._pending_events) + list(self._pending_surges):
                 self._drop_events(key)
         self._persist()
         with self.lock:
@@ -805,11 +960,7 @@ class Radar:
                             self._note_gap((market, symbol))
                             self._queue_resync((market, symbol))
                         elif result == "ok":
-                            key = (market, symbol)
-                            self._track_live(key, state, now)
-                            if k.get("x") is True:
-                                self._record_confirmed(key, state)
-                                self._advance_events(key, state)
+                            self._on_tick((market, symbol), state, now, k.get("x") is True)
                 except Exception as exc:
                     self._error(f"{market} 消息处理失败: {exc}")
 
@@ -950,6 +1101,11 @@ class Radar:
                         "dif": dif,
                         "dif_pct": dif_pct,
                         "above200": state.price > state.live200,
+                        "above50": state.price > state.live50,
+                        "volume_ratio": volume_ratio(
+                            state.recent_volume,
+                            state.live_volume if state.live_t > state.last_close_t else None,
+                        ),
                         "ema200_rising": state.ema200 > state.previous_ema200,
                         "live_cross": live_cross,
                         "confirmed_cross": confirmed,

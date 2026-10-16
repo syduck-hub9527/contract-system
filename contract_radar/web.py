@@ -7,7 +7,7 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 LOG = logging.getLogger("difradar")
 
@@ -64,13 +64,15 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if not self._host_allowed():
             self._send(403, "text/plain", b"Forbidden host")
             return
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", self.html)
         elif path in ("/api/state", "/dif-api/state"):
             self._json(200, self.radar.snapshot())
         elif path in ("/api/events", "/dif-api/events"):
-            self._json(200, self.radar.events_snapshot())
+            kind = (parse_qs(parsed.query).get("kind") or [""])[0]
+            self._json(200, self.radar.events_snapshot(kind))
         elif path == "/health":
             status = self.radar.health()
             self._json(200 if status["ok"] else 503, status)

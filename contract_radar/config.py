@@ -30,6 +30,9 @@ class Settings:
     weight_target: int = 1920
     # Optional directory for state snapshots (fast restart) and the signal event log.
     data_dir: str = ""
+    # EMA21 急拉/急跌的服务端判定阈值（用于信号记录与评估；页面上的阈值只影响显示）。
+    slope_mult: float = 3.0
+    slope_min: float = 0.1
     connect_timeout: float = 5.0
     read_timeout: float = 15.0
     retry_attempts: int = 3
@@ -63,6 +66,8 @@ class Settings:
                 raise ValueError(f"{name} 必须为{low}至{high}的整数")
         for name, low, high in (
             ("request_spacing", 0.01, 10),
+            ("slope_mult", 0.5, 20),
+            ("slope_min", 0.001, 5),
             ("connect_timeout", 0.1, 30),
             ("read_timeout", 0.1, 60),
             ("http_timeout", 0.1, 60),
