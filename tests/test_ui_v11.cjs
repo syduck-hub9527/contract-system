@@ -49,6 +49,8 @@ const tick=()=>new Promise(r=>setImmediate(r));
 
   // 信号记录：只请求并显示最近5分钟；超过5分钟自动移除；卡片显示最近5分钟的急拉/急跌条数
   const now=state.server_time;
+  state.rows.push(row('NEWUSDT',{volume:494109,volume_unit:'ETH',quote_volume:1.2e9,quote_asset:'USDT',volume_updated_at:now,
+    funding_rate:-0.0001,next_funding_time:now+3600000,funding_updated_at:now,funding_stale:false}));
   allEvents=[
     {id:4,market:'UM',symbol:'NEWUSDT',kind:'surge_down',at:now-10000,price:2500,above50:false,above200:true,held_at_close:null,volume_ratio:3.2,ret_5m:-1},
     {id:3,market:'CM',symbol:'<img src=x onerror=bad>',kind:'surge_up',at:now-2*MIN,price:60000,above50:true,above200:true,held_at_close:true},
@@ -60,14 +62,21 @@ const tick=()=>new Promise(r=>setImmediate(r));
   assert.equal(d.querySelector('#m-recent').textContent.replace(/\s+/g,''),'2/1');
   click('history');await tick();
   const heads=[...d.querySelectorAll('thead th')].map(th=>th.textContent);
-  assert.deepEqual(heads,['触发时间','交易对','信号','触发价','趋势']);
+  assert.deepEqual(heads,['触发时间','交易对','信号','触发价','24h 成交量','资金费率','趋势']);
   assert.equal(d.querySelectorAll('#tbody tr').length,3);
   assert.equal(d.querySelectorAll('#tbody img').length,0);
   assert.doesNotMatch(body(),/OLDUSDT/);
   assert.doesNotMatch(body(),/量能|3\.2×|-1\.00%/);
   const first=d.querySelectorAll('#tbody tr')[0];
   assert.match(first.textContent,/NEWUSDT/);assert.match(first.children[2].textContent,/急跌/);
-  assert.match(first.children[4].textContent,/EMA50 ↓.*EMA200 ↑/);
+  assert.equal(first.children[4].textContent.trim(),'49.41 万');
+  assert.match(first.children[4].querySelector('span').title,/精确值 494,109 ETH/);
+  assert.equal(first.children[5].textContent,'-0.0100%');
+  assert.match(first.children[5].querySelector('span').title,/下次结算/);
+  assert.match(first.children[6].textContent,/EMA50 ↓.*EMA200 ↑/);
+  // 主列表中没有该合约（例如币本位未加载）时显示“—”
+  const cmRow=[...d.querySelectorAll('#tbody tr')].find(tr=>tr.children[1].textContent.includes('币本位'));
+  assert.equal(cmRow.children[4].textContent,'—');assert.equal(cmRow.children[5].textContent,'—');
   assert.match(body(),/收盘仍成立/);assert.match(body(),/收盘已回落/);
   assert.match(d.querySelector('#count').textContent,/最近5分钟 急拉 2 条.*急跌 1 条/);
   // 时间推进 20 秒：EDGEUSDT 超过5分钟，自动移除（即使接口还没刷新）

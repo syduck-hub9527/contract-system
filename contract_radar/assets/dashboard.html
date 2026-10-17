@@ -330,6 +330,8 @@
   }
   const MAIN_HEAD = $('table').tHead.innerHTML;
   const HISTORY_HEAD = '<tr><th>触发时间</th><th>交易对</th><th>信号</th><th class="right">触发价</th>'
+    + '<th class="right" title="该合约当前的滚动24小时成交量（与主列表相同）；U本位为基础币数量，币本位为合约张数。悬停查看单位与精确值。">24h 成交量</th>'
+    + '<th class="right" title="该合约当前的资金费率（与主列表相同）；悬停查看下次结算时间。">资金费率</th>'
     + '<th title="触发时最新价相对 EMA50 / EMA200">趋势</th></tr>';
   // 只保留最近5分钟内触发的急拉/急跌（按服务器时间计算），超过5分钟的自动移除
   const recentEvents = () => {
@@ -354,8 +356,11 @@
       $('tbody').innerHTML = '';
       return;
     }
+    // 成交量与资金费率取该合约在主列表中的当前数据，格式、单位与过期规则与主列表一致
+    const current = new Map((latest.rows || []).map(r => [rowKey(r), r]));
     $('tbody').innerHTML = shown.map((e) => {
       const symbol = String(e.symbol);
+      const live = current.get(`${e.market}:${symbol}`);
       const link = e.market === 'CM' ? `https://www.binance.com/zh-CN/delivery/${encodeURIComponent(symbol)}` : `https://www.binance.com/zh-CN/futures/${encodeURIComponent(symbol)}`;
       const at = new Date(e.at).toLocaleTimeString('zh-CN', {hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'});
       const held = e.held_at_close === true ? '<span class="muted" style="font-size:11px" title="触发所在的K线收盘时信号仍然成立">收盘仍成立</span>'
@@ -366,6 +371,8 @@
         <td class="name"><a class="link" href="${link}" target="_blank" rel="noopener noreferrer">${escape(symbol)}</a>${e.market === 'CM' ? ' <span class="muted" style="font-size:11px">币本位</span>' : ''}</td>
         <td><span style="display:inline-flex;gap:6px;align-items:center">${tag}${held}</span></td>
         <td class="right num">${numberFmt(e.price)}</td>
+        <td class="right num">${live ? volumeCell(live) : '<span class="muted" title="成交量尚未获取">—</span>'}</td>
+        <td class="right num">${live ? fundingCell(live) : '<span class="muted" title="资金费率尚未获取或已过期">—</span>'}</td>
         <td>${trendCell(e.above50, e.above200)}</td>
       </tr>`;
     }).join('');
