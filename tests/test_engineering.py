@@ -107,6 +107,7 @@ class IndicatorsAndUI(unittest.TestCase):
             'id="query"',
             "fetch('/dif-api/state'",
             "/dif-api/events?kind=surge&since=",
+            'rel="icon" type="image/png" href="icon.png"',
             "difradar.slopeMult",
             "difradar.slopeMin",
         ):
@@ -495,6 +496,14 @@ class HTTP(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             urllib.request.urlopen(self.url + "/ready")
         self.assertEqual(cm.exception.code, 503)
+
+    def test_icon_is_served_as_png(self):
+        icon = (ROOT / "contract_radar/assets/icon.png").read_bytes()
+        self.assertTrue(icon.startswith(b"\x89PNG"))
+        for path in ("/icon.png", "/favicon.ico", "/dif-api/icon.png"):
+            with urllib.request.urlopen(self.url + path) as r:
+                self.assertEqual(r.headers["Content-Type"], "image/png")
+                self.assertEqual(r.read(), icon)
 
     def test_invalid_host_and_unknown_route(self):
         req = urllib.request.Request(self.url, headers={"Host": "evil.example"})

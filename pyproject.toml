@@ -20,7 +20,7 @@ contract-radar = "contract_radar.app:main"
 include = ["contract_radar*"]
 
 [tool.setuptools.package-data]
-contract_radar = ["assets/*.html"]
+contract_radar = ["assets/*.html", "assets/*.png"]
 
 [tool.ruff]
 target-version = "py312"

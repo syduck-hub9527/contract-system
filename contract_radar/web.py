@@ -68,6 +68,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", self.html)
+        elif path in ("/icon.png", "/favicon.ico", "/dif-api/icon.png"):
+            self._send(200, "image/png", self.icon)
         elif path in ("/api/state", "/dif-api/state"):
             self._json(200, self.radar.snapshot())
         elif path in ("/api/events", "/dif-api/events"):
@@ -115,9 +117,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
 def create_server(settings, radar):
     html = files("contract_radar").joinpath("assets/dashboard.html").read_bytes()
+    icon = files("contract_radar").joinpath("assets/icon.png").read_bytes()
     handler = type(
         "RadarHandler",
         (HTTPHandler,),
-        {"radar": radar, "html": html, "ALLOWED_HOSTS": set(settings.allowed_hosts)},
+        {"radar": radar, "html": html, "icon": icon, "ALLOWED_HOSTS": set(settings.allowed_hosts)},
     )
     return RadarHTTPServer((settings.host, settings.port), handler, settings)
