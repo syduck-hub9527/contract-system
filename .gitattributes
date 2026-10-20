@@ -1,1 +1,3 @@
-# No path-specific byte rules; default git behavior applies to the radar package.
+# 前端构建产物：由 web/ 生成（cd web && npm run build），不要手工编辑。
+contract_radar/assets/dashboard.html linguist-generated=true
+web/package-lock.json linguist-generated=true

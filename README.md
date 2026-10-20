@@ -77,7 +77,7 @@ python binance_live_dif.py --data-dir radar-data
 
 ## 工程化运行
 
-前端沿用原有配色、CSS 与卡片，在最新价格后增加“24h 成交量”与“资金费率”列。页面只有一份源文件 `contract_radar/assets/dashboard.html`，服务与安装包都直接使用它。原启动命令和 `/api/state`、`/dif-api/state` 继续兼容。
+前端使用 **React + TypeScript + Vite + Tailwind CSS + shadcn/ui + Motion** 编写，源码在 `web/`，沿用原有深色配色、统计卡片与三个标签页。构建时把全部 JS 与 CSS 内联成一个文件 `contract_radar/assets/dashboard.html`（已随仓库提交），Python 服务与安装包都直接托管它，因此**下载后只装 Python 即可运行，不需要 Node**。行情计算、WebSocket、REST 与状态接口全部保留在 Python 后端，原启动命令和 `/api/state`、`/dif-api/state`、`/dif-api/events` 继续兼容；页面设置（斜率倍数、最小变化、提醒开关）沿用原来的浏览器存储键，升级后不会丢失。
 
 推荐使用独立Python环境（Linux/macOS）：
 
@@ -162,15 +162,35 @@ python -m build
 python tests/check_wheel.py
 ```
 
-前端兼容测试（仅开发需要Node22）：
+### 前端开发（仅修改页面时需要 Node 22.12+）
 
 ```bash
-npm install --no-save jsdom@30.1.2
-node tests/test_ui.cjs
-node tests/test_ui_v11.cjs
+# 终端 1：启动 Python 后端（实时行情与接口）
+python binance_live_dif.py
+# 终端 2：前端开发服务器，热更新；/dif-api、/api 与 /icon.png 自动转发到 127.0.0.1:8765
+cd web
+npm ci
+npm run dev        # 浏览器打开 http://localhost:5173
 ```
 
-测试锁定原CSS、页面关键结构（标签页与脚本依赖的元素）与原版EMA计算/盘中更新快照，并验证增量补齐与完整重算逐位一致；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，使用Python3.12。
+后端不在默认端口时用 `RADAR_BACKEND=http://127.0.0.1:8888 npm run dev` 指定。修改完成后：
+
+```bash
+cd web
+npm run typecheck
+npm test           # Vitest + Testing Library：标签页、阈值与保存、排序与持续时间、信号记录、成交量/资金费率单元格、提醒、断线
+npm run build      # 生成 contract_radar/assets/dashboard.html（单文件，内联 JS/CSS）
+```
+
+`dashboard.html` 是构建产物，不要手工编辑；修改 `web/src` 后必须重新 `npm run build` 并一起提交，否则 Python 服务仍会托管旧页面。
+
+| 目录 | 内容 |
+|---|---|
+| `web/src/lib/` | 斜率信号判定、格式化、成交量/资金费率单元格、提醒、浏览器存储（纯函数，单元测试覆盖） |
+| `web/src/hooks/useRadar.ts` | 每2秒轮询 `/dif-api/state` 与最近5分钟的 `/dif-api/events` |
+| `web/src/components/` | 页头、统计卡片、筛选栏、信号表与记录表；`ui/` 为 shadcn/ui 组件 |
+
+Python 测试锁定构建后页面的关键结构（接口地址、存储键、标签页、无外部脚本）与原版EMA计算/盘中更新快照，并验证增量补齐与完整重算逐位一致；覆盖成交量单位、缺失/零值/过期、缓存恢复、配置、限流重试、线程停止、队列、HTTP状态接口和安装包资源。上述检查在本地手动执行，使用Python3.12。
 
 模块职责见 [架构与维护说明](docs/architecture.md)。
 
@@ -227,7 +247,7 @@ node tests/test_ui_v11.cjs
 | `funding_updated_at` | 资金费率获取时间 | 是 |
 | `funding_stale` | 资金费率是否过期（距上次成功获取超过三个刷新周期，或尚无数据） | 是 |
 
-待核实：币安文档未说明 `lastFundingRate`（以及标记价格流的 `r`）是最近一次已结算的费率还是本周期的实时预估值，因此 README 与页面列头暂用中性表述。核实方法是在同一个 `nextFundingTime` 内每分钟采样 `premiumIndex` 至少20次，并与 `/fapi/v1/fundingRate` 最新一条对比；确认后同步修改这里、上方功能说明和 `contract_radar/assets/dashboard.html` 的列头三处文案。
+待核实：币安文档未说明 `lastFundingRate`（以及标记价格流的 `r`）是最近一次已结算的费率还是本周期的实时预估值，因此 README 与页面列头暂用中性表述。核实方法是在同一个 `nextFundingTime` 内每分钟采样 `premiumIndex` 至少20次，并与 `/fapi/v1/fundingRate` 最新一条对比；确认后同步修改这里、上方功能说明和 `web/src/components/SignalTable.tsx` 的列头三处文案（改完重新构建）。
 
 ## 信号记录接口
 

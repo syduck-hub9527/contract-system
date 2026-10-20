@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * 配色沿用原版雷达页面：深蓝底、金色品牌、绿涨红跌。
+ * 页面固定为深色主题（看盘场景），亮色变量与深色相同，避免系统主题切换导致对比度异常。
+ */
+:root {
+  color-scheme: dark;
+  --radius: 0.75rem;
+
+  --background: #0a0e17;
+  --foreground: #eaf0f8;
+  --card: #121b2a;
+  --card-foreground: #eaf0f8;
+  --popover: #121b2a;
+  --popover-foreground: #eaf0f8;
+  --primary: #f8be4b;
+  --primary-foreground: #192231;
+  --secondary: #263248;
+  --secondary-foreground: #e3eaf4;
+  --muted: #161f30;
+  --muted-foreground: #8b9aad;
+  --accent: #1b293b;
+  --accent-foreground: #eaf0f8;
+  --destructive: #fa697f;
+  --border: #273245;
+  --input: #344156;
+  --ring: #d4a34c;
+
+  /* 行情语义色 */
+  --up: #25c49b;
+  --up-soft: #12493d;
+  --up-fg: #31dfb0;
+  --down: #fa697f;
+  --down-soft: #4a2331;
+  --down-fg: #ff8192;
+  --gold: #f8be4b;
+  --link: #a4c5ff;
+  --surface: #0e1724;
+  --table-head: #1a2638;
+}
+
+@theme inline {
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-up: var(--up);
+  --color-up-soft: var(--up-soft);
+  --color-up-fg: var(--up-fg);
+  --color-down: var(--down);
+  --color-down-soft: var(--down-soft);
+  --color-down-fg: var(--down-fg);
+  --color-gold: var(--gold);
+  --color-link: var(--link);
+  --color-surface: var(--surface);
+  --color-table-head: var(--table-head);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    background: var(--background);
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.4;
+    background:
+      radial-gradient(900px 370px at 74% -210px, #1c2b42, transparent 82%),
+      var(--background);
+  }
+  button {
+    cursor: pointer;
+  }
+  /* 数字输入框不显示上下箭头，宽度更紧凑 */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .scroll-area {
+    scrollbar-color: #334157 transparent;
+  }
+}

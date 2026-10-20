@@ -1,6 +1,5 @@
 """Offline configuration, transport, lifecycle, HTTP and compatibility regression."""
 
-import hashlib
 import json
 import re
 import threading
@@ -90,38 +89,46 @@ class IndicatorsAndUI(unittest.TestCase):
                     legacy_without_dif(expected["pair"]),
                 )
 
-    def test_ui_is_single_source_with_key_structure(self):
-        # v1.1: the packaged page is the only copy; instead of pinning the whole file's
-        # hash, pin the CSS (below) and the DOM hooks the script and tests rely on.
+    def test_ui_is_single_built_page_with_key_hooks(self):
+        # v2: the page is built from web/ (React + Vite) into one packaged file that the
+        # server and the wheel ship as-is; pin the API routes, storage keys and tabs it relies on.
         self.assertFalse((ROOT / "dashboard.html").exists())
+        for source in ("web/index.html", "web/src/App.tsx", "web/package-lock.json"):
+            self.assertTrue((ROOT / source).is_file(), source)
         html = UI.read_text(encoding="utf-8")
-        for removed in ('id="min-turnover"', 'id="min-volume"', 'id="cost"', "量能", "最大顺"):
+        self.assertIn('<div id="root"></div>', html)
+        for removed in (
+            'id="min-turnover"',
+            'id="min-volume"',
+            'id="cost"',
+            "量能",
+            "最大顺",
+            "金叉",
+            "死叉",
+        ):
             self.assertNotIn(removed, html)
         for hook in (
-            'id="tbody"',
-            'id="table"',
-            'id="market"',
-            'id="slope-mult"',
-            'id="slope-min"',
-            'id="notify"',
-            'id="query"',
-            "fetch('/dif-api/state'",
+            "/dif-api/state",
             "/dif-api/events?kind=surge&since=",
-            'rel="icon" type="image/png" href="icon.png"',
+            'rel="icon" type="image/png" href="/icon.png"',
             "difradar.slopeMult",
             "difradar.slopeMin",
+            "difradar.notify",
+            "slope-up",
+            "slope-down",
+            "EMA21 急拉",
+            "EMA21 急跌",
+            "信号记录",
         ):
             self.assertIn(hook, html)
-        tabs = re.findall(r'data-filter="([\w-]+)"', html)
-        self.assertEqual(tabs, ["slope-up", "slope-down", "history"])
 
-    def test_original_css_is_preserved(self):
+    def test_ui_page_is_self_contained(self):
+        # Scripts and styles are inlined: the page works offline from the local server, with no CDN.
         html = UI.read_text(encoding="utf-8")
-        style = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
-        self.assertEqual(
-            hashlib.sha256(style.encode()).hexdigest(),
-            "87584a640bf337263ef5a5091a136d98a15b4989693cc9479e81673e8daa5afc",
-        )
+        self.assertIsNone(re.search(r"<script[^>]*\bsrc=", html))
+        self.assertIsNone(re.search(r"<link[^>]*rel=\"stylesheet\"", html))
+        self.assertEqual(len(re.findall(r'<script type="module"', html)), 1)
+        self.assertEqual(len(re.findall(r"<style", html)), 1)
 
     def test_bad_prices_and_times_do_not_pollute_ema(self):
         p = initialize_pair("UM", "TESTUSDT", history(), BASE + 60000)
