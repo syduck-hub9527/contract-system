@@ -14,6 +14,8 @@ export interface Row {
   ema21_slope_pct: number | null
   ema21_slope_base_pct: number | null
   ema21_slope_base_abs_pct: number | null
+  turnover?: number | null
+  turnover_unit?: string | null
   volume?: number | null
   volume_unit?: string | null
   base_volume?: number | null

@@ -346,7 +346,7 @@ class ApiDocumentation(unittest.TestCase):
         top_part, row_part = section.split("`rows` 数组", 1)
         documented_top = set(re.findall(r"^\| `(\w+)` \|", top_part, re.M))
         documented_row = set(re.findall(r"^\| `(\w+)` \|", row_part, re.M))
-        self.assertEqual(len(documented_row), 30)
+        self.assertEqual(len(documented_row), 32)
 
         radar = Radar(("UM",))
         key = ("UM", "TESTUSDT")

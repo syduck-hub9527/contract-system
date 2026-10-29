@@ -232,7 +232,7 @@ describe('急拉 / 急跌标签页', () => {
 
     // 表头与趋势列
     const heads = [...ui.view.container.querySelectorAll('thead th')].map((th) => th.textContent)
-    expect(heads).toEqual(['交易对', '类型', '最新价格', '24h 成交量', '资金费率', '当前信号', '趋势', '最近更新'])
+    expect(heads).toEqual(['交易对', '类型', '最新价格', '24h 成交额', '资金费率', '当前信号', '趋势', '最近更新'])
     expect(ui.rowOf('OLDERUSDT').querySelector('[data-col="trend"]')).toHaveTextContent(/EMA50 ↑.*EMA200 ↑/)
     expect(ui.rowOf('ETHUSD_PERP').querySelector('[data-col="trend"]')).toHaveTextContent(/EMA50 ↓.*EMA200 ↓/)
 
@@ -243,9 +243,11 @@ describe('急拉 / 急跌标签页', () => {
     expect(ui.body()).toContain('<img src=x onerror=bad>USDT')
     fake.state.rows[0].symbol = 'OLDERUSDT'
 
-    // 成交量与资金费率
+    // 成交额与资金费率
     const [, btc, cm] = fake.state.rows
     Object.assign(btc, UP, {
+      turnover: 0,
+      turnover_unit: 'USDT',
       volume: 0,
       volume_unit: 'BTC',
       base_volume: 0,
@@ -255,6 +257,8 @@ describe('急拉 / 急跌标签页', () => {
       volume_updated_at: T0,
     })
     Object.assign(cm, {
+      turnover: 4941090,
+      turnover_unit: 'USD',
       volume: 494109,
       volume_unit: '张',
       base_volume: 5192.94797687,
@@ -264,12 +268,14 @@ describe('急拉 / 急跌标签页', () => {
       volume_updated_at: T0,
     })
     await ui.poll()
-    const vol = (s: string) => ui.rowOf(s).querySelector('[data-col="volume"] [data-detail]') as HTMLElement
+    const vol = (s: string) => ui.rowOf(s).querySelector('[data-col="turnover"] [data-detail]') as HTMLElement
     const fund = (s: string) => ui.rowOf(s).querySelector('[data-col="funding"] [data-detail]') as HTMLElement
     expect(vol('BTCUSDT')).toHaveTextContent(/^0$/)
-    expect(vol('BTCUSDT').dataset.detail).toMatch(/成交额 0 USDT/)
-    expect(vol('ETHUSD_PERP')).toHaveTextContent('49.41 万')
-    expect(vol('ETHUSD_PERP').dataset.detail).toMatch(/精确值 494,109 张/)
+    expect(vol('BTCUSDT').dataset.detail).toMatch(/精确值 0 USDT/)
+    expect(vol('BTCUSDT').dataset.detail).toMatch(/成交量 0 BTC/)
+    expect(vol('ETHUSD_PERP')).toHaveTextContent('494.11 万')
+    expect(vol('ETHUSD_PERP').dataset.detail).toMatch(/精确值 4,941,090 USD/)
+    expect(vol('ETHUSD_PERP').dataset.detail).toMatch(/成交量 494,109 张/)
     expect(vol('ETHUSD_PERP').dataset.detail).toMatch(/币数量 5,192.95 BTC/)
     expect(vol('OLDERUSDT')).toHaveTextContent('—')
     expect(fund('BTCUSDT')).toHaveTextContent('—')
@@ -289,7 +295,7 @@ describe('急拉 / 急跌标签页', () => {
     expect(vol('BTCUSDT')).toHaveTextContent('—')
     expect(vol('BTCUSDT').dataset.detail).toMatch(/过期/)
     btc.volume_stale = false
-    btc.volume = null
+    btc.turnover = null
     await ui.poll()
     expect(vol('BTCUSDT')).toHaveTextContent('—')
 
@@ -326,12 +332,14 @@ describe('稳定排序、信号记录与提醒', () => {
     expect(ui.body()).toMatch(/30秒/)
   })
 
-  it('shows only the last five minutes of surges, joined with live volume and funding', async () => {
+  it('shows only the last five minutes of surges, joined with live turnover and funding', async () => {
     const fake = backend({ loaded: 4, total: 4 })
     const now = T0 + 30_000
     fake.state.server_time = now
     fake.state.rows = [
       row('NEWUSDT', {
+        turnover: 1.2e9,
+        turnover_unit: 'USDT',
         volume: 494109,
         volume_unit: 'ETH',
         quote_volume: 1.2e9,
@@ -358,16 +366,16 @@ describe('稳定排序、信号记录与提醒', () => {
 
     await ui.tab('history')
     const heads = [...ui.view.container.querySelectorAll('thead th')].map((th) => th.textContent)
-    expect(heads).toEqual(['触发时间', '交易对', '信号', '触发价', '24h 成交量', '资金费率', '趋势'])
+    expect(heads).toEqual(['触发时间', '交易对', '信号', '触发价', '24h 成交额', '资金费率', '趋势'])
     expect(ui.view.container.querySelectorAll('tbody tr')).toHaveLength(3)
     expect(ui.view.container.querySelectorAll('tbody img')).toHaveLength(0)
     expect(ui.body()).not.toMatch(/OLDUSDT/)
     const first = ui.view.container.querySelectorAll('tbody tr')[0] as HTMLElement
     expect(first).toHaveTextContent(/NEWUSDT/)
     expect(first.querySelector('[data-col="signal"]')).toHaveTextContent(/急跌/)
-    expect(first.querySelector('[data-col="volume"]')).toHaveTextContent('49.41 万')
-    expect((first.querySelector('[data-col="volume"] [data-detail]') as HTMLElement).dataset.detail).toMatch(
-      /精确值 494,109 ETH/,
+    expect(first.querySelector('[data-col="turnover"]')).toHaveTextContent('12 亿')
+    expect((first.querySelector('[data-col="turnover"] [data-detail]') as HTMLElement).dataset.detail).toMatch(
+      /精确值 1,200,000,000 USDT.*成交量 494,109 ETH/,
     )
     expect(first.querySelector('[data-col="funding"]')).toHaveTextContent('-0.0100%')
     expect(first.querySelector('[data-col="trend"]')).toHaveTextContent(/EMA50 ↓.*EMA200 ↑/)
@@ -375,7 +383,7 @@ describe('稳定排序、信号记录与提醒', () => {
     const cmRow = [...ui.view.container.querySelectorAll('tbody tr')].find((tr) =>
       tr.querySelector('[data-col="symbol"]')?.textContent?.includes('币本位'),
     ) as HTMLElement
-    expect(cmRow.querySelector('[data-col="volume"]')).toHaveTextContent('—')
+    expect(cmRow.querySelector('[data-col="turnover"]')).toHaveTextContent('—')
     expect(cmRow.querySelector('[data-col="funding"]')).toHaveTextContent('—')
     expect(ui.body()).toMatch(/收盘仍成立/)
     expect(ui.body()).toMatch(/收盘已回落/)

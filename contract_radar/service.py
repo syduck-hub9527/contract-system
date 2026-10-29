@@ -29,7 +29,7 @@ from .indicators import (
     update_pair,
     volume_ratio,
 )
-from .volume import Volume, missing_volume
+from .volume import Volume, contract_size, missing_volume
 
 LOG = logging.getLogger("difradar")
 
@@ -62,7 +62,7 @@ class Radar:
         self._group_sequence = 0
         self.lock = threading.RLock()
         self.states: dict[tuple[str, str], Pair] = {}
-        self.symbol_metadata: dict[tuple[str, str], dict[str, str]] = {}
+        self.symbol_metadata: dict[tuple[str, str], dict[str, str | float]] = {}
         self.volumes: dict[tuple[str, str], Volume] = {}
         self.fundings: dict[tuple[str, str], Funding] = {}
         self.total = 0
@@ -134,10 +134,14 @@ class Radar:
             status = item.get("status", item.get("contractStatus", ""))
             if item.get("contractType") == "PERPETUAL" and status == "TRADING":
                 found.add(item["symbol"].upper())
-                metadata[(market, item["symbol"].upper())] = {
+                entry = {
                     name: item.get(name, "") if isinstance(item.get(name, ""), str) else ""
                     for name in ("baseAsset", "quoteAsset")
                 }
+                size = contract_size(item.get("contractSize"))
+                if market == "CM" and size is not None:
+                    entry["contractSize"] = size  # 币本位每张合约面值（USD），用于算成交额
+                metadata[(market, item["symbol"].upper())] = entry
         with self.lock:
             for key in list(self.symbol_metadata):
                 if key[0] == market and key not in metadata:
@@ -398,9 +402,10 @@ class Radar:
         volume = self.volumes.get(key)
         if volume is None:
             return None
-        if volume.quote_volume is not None:
-            return volume.quote_volume
-        return volume.base_volume * price
+        turnover = volume.turnover(key[0], self.symbol_metadata.get(key, {}))
+        if turnover is not None:
+            return turnover
+        return volume.base_volume * price  # 币本位缺少面值时按现价估算
 
     def _finish_event(self, event):
         event["done"] = True

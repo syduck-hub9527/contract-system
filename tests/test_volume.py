@@ -12,7 +12,7 @@ from contract_radar.config import Settings, parse_settings
 from contract_radar.exchange import Stopped
 from contract_radar.indicators import initialize_pair
 from contract_radar.service import Radar
-from contract_radar.volume import Volume
+from contract_radar.volume import Volume, contract_size
 
 NOW = BASE + 60_000
 
@@ -47,6 +47,8 @@ class VolumeSemantics(unittest.TestCase):
         self.assertEqual(result["base_volume"], 8913.3)
         self.assertEqual(result["quote_volume"], 15300)
         self.assertEqual(result["volume_unit"], "BTC")
+        self.assertEqual(result["turnover"], 15300)
+        self.assertEqual(result["turnover_unit"], "USDT")
         self.assertFalse(result["volume_stale"])
 
     def test_cm_contract_count_is_distinct_from_coin_quantity(self):
@@ -58,6 +60,24 @@ class VolumeSemantics(unittest.TestCase):
         self.assertEqual(result["base_volume"], 5192.94797687)
         self.assertEqual(result["volume_unit"], "张")
         self.assertIsNone(result["quote_volume"])
+        # 没有合约面值时不估算成交额
+        self.assertIsNone(result["turnover"])
+        self.assertEqual(result["turnover_unit"], "USD")
+
+    def test_cm_turnover_is_contracts_times_face_value(self):
+        data = {"volume": "494109", "baseVolume": "5192.94797687", "closeTime": NOW}
+        result = Volume.from_ticker("CM", data, NOW).snapshot(
+            "CM", {"baseAsset": "BTC", "quoteAsset": "USD", "contractSize": 100.0}, NOW, 180_000
+        )
+        self.assertEqual(result["turnover"], 49_410_900)
+        self.assertEqual(result["turnover_unit"], "USD")
+
+    def test_contract_size_parsing(self):
+        self.assertEqual(contract_size(100), 100.0)
+        self.assertEqual(contract_size("10"), 10.0)
+        for bad in [None, True, "", "abc", 0, -10, "nan", "inf", {}]:
+            with self.subTest(bad=bad):
+                self.assertIsNone(contract_size(bad))
 
     def test_zero_is_a_real_value(self):
         volume = Volume.from_ticker("UM", ticker(volume="0", quoteVolume="0"), NOW)
@@ -128,10 +148,25 @@ class VolumeIntegration(unittest.TestCase):
         self.assertEqual(rows["UM"]["volume"], 8913.3)
         self.assertEqual(rows["CM"]["volume"], 42)
         self.assertEqual(rows["CM"]["volume_unit"], "张")
+        self.assertEqual(rows["UM"]["turnover"], 15300)
+
+    def test_cm_turnover_uses_contract_size_from_exchange_info(self):
+        symbol = "BTCUSD_PERP"
+        self.r._json.return_value = exchange(symbol, baseAsset="BTC", quoteAsset="USD", contractSize=100)
+        self.r._symbols("CM")
+        self.assertEqual(self.r.symbol_metadata[("CM", symbol)]["contractSize"], 100.0)
+        self.r.states[("CM", symbol)] = initialize_pair("CM", symbol, history(), NOW)
+        self.r._json.return_value = [ticker(symbol, volume="42", baseVolume="0.2")]
+        self.r._refresh_volumes("CM")
+        row = next(row for row in self.r.snapshot()["rows"] if row["market"] == "CM")
+        self.assertEqual((row["turnover"], row["turnover_unit"]), (4200, "USD"))
+        self.assertEqual(self.r._notional(("CM", symbol), 50_000), 4200)
+        json.dumps(self.r.snapshot(), allow_nan=False)
 
     def test_missing_volume_is_null_not_fake_zero(self):
         row = self.r.snapshot()["rows"][0]
         self.assertIsNone(row["volume"])
+        self.assertIsNone(row["turnover"])
         self.assertTrue(row["volume_stale"])
         self.assertEqual(row["volume_unit"], "BTC")
 

@@ -9,7 +9,7 @@ import {
   TrendCell,
 } from '@/components/cells'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { fundingView, MISSING_FUNDING, MISSING_VOLUME, volumeView } from '@/lib/cells'
+import { fundingView, MISSING_FUNDING, MISSING_TURNOVER, turnoverView } from '@/lib/cells'
 import { duration, fmtTime, isNum, numberFmt } from '@/lib/format'
 import { rowKey, sinceOf, slopeSignal, type Seen } from '@/lib/signals'
 import type { Row, SignalEvent, Threshold } from '@/lib/types'
@@ -42,8 +42,8 @@ function Head() {
         <TableHead className={headCls}>最新价格</TableHead>
         <TableHead className={headCls}>
           <HeadHint
-            label="24h 成交量"
-            details="滚动24小时成交量；U本位为基础币数量，币本位为合约张数。定期获取，悬停查看单位与精确值。"
+            label="24h 成交额"
+            details="滚动24小时成交额；U本位以 USDT/USDC 计，币本位以美元计（张数 × 合约面值）。定期获取，悬停查看精确值与成交量。"
           />
         </TableHead>
         <TableHead className={headCls}>
@@ -111,8 +111,8 @@ export function SignalTable({
                   <MarketBadge market={r.market} />
                 </TableCell>
                 <TableCell className={cn(cellCls, numCls)}>{numberFmt(r.price)}</TableCell>
-                <TableCell className={cn(cellCls, numCls)} data-col="volume">
-                  <DataCell view={volumeView(r)} />
+                <TableCell className={cn(cellCls, numCls)} data-col="turnover">
+                  <DataCell view={turnoverView(r)} />
                 </TableCell>
                 <TableCell className={cn(cellCls, numCls)} data-col="funding">
                   <DataCell view={fundingView(r)} />
@@ -157,7 +157,7 @@ export function HistoryTable({
   events: SignalEvent[]
   rows: Row[]
 }) {
-  // 成交量与资金费率取该合约在主列表中的当前数据，格式、单位与过期规则与主列表一致
+  // 成交额与资金费率取该合约在主列表中的当前数据，格式、单位与过期规则与主列表一致
   const current = new Map(rows.map((r) => [rowKey(r), r]))
   return (
     <Table className="min-w-[1040px] text-xs">
@@ -169,8 +169,8 @@ export function HistoryTable({
           <TableHead className={headCls}>触发价</TableHead>
           <TableHead className={headCls}>
             <HeadHint
-              label="24h 成交量"
-              details="该合约当前的滚动24小时成交量（与主列表相同）；U本位为基础币数量，币本位为合约张数。悬停查看单位与精确值。"
+              label="24h 成交额"
+              details="该合约当前的滚动24小时成交额（与主列表相同）；U本位以 USDT/USDC 计，币本位以美元计。悬停查看精确值与成交量。"
             />
           </TableHead>
           <TableHead className={headCls}>
@@ -230,8 +230,8 @@ export function HistoryTable({
                   </span>
                 </TableCell>
                 <TableCell className={cn(cellCls, numCls)}>{numberFmt(e.price)}</TableCell>
-                <TableCell className={cn(cellCls, numCls)} data-col="volume">
-                  <DataCell view={live ? volumeView(live) : MISSING_VOLUME} />
+                <TableCell className={cn(cellCls, numCls)} data-col="turnover">
+                  <DataCell view={live ? turnoverView(live) : MISSING_TURNOVER} />
                 </TableCell>
                 <TableCell className={cn(cellCls, numCls)} data-col="funding">
                   <DataCell view={live ? fundingView(live) : MISSING_FUNDING} />

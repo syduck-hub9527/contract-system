@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fundingView, volumeView } from './cells'
+import { fundingView, turnoverView } from './cells'
 import { compactFmt, duration, numberFmt } from './format'
 import {
   filterRows,
@@ -120,9 +120,11 @@ describe('slope signal', () => {
 })
 
 describe('cells', () => {
-  it('describes volume with units, exact value and staleness', () => {
+  it('describes turnover with units, exact value, volume and staleness', () => {
     const cm = row('ETHUSD_PERP', {
       market: 'CM',
+      turnover: 4941090,
+      turnover_unit: 'USD',
       volume: 494109,
       volume_unit: '张',
       base_volume: 5192.94797687,
@@ -131,17 +133,20 @@ describe('cells', () => {
       volume_stale: false,
       volume_updated_at: 1,
     })
-    const v = volumeView(cm)
-    expect(v.text).toBe('49.41 万')
-    expect(v.details.join(' · ')).toMatch(/精确值 494,109 张/)
+    const v = turnoverView(cm)
+    expect(v.text).toBe('494.11 万')
+    expect(v.details.join(' · ')).toMatch(/精确值 4,941,090 USD/)
+    expect(v.details.join(' · ')).toMatch(/成交量 494,109 张/)
     expect(v.details.join(' · ')).toMatch(/币数量 5,192.95 BTC/)
-    const zero = volumeView(
-      row('B', { volume: 0, volume_unit: 'BTC', quote_volume: 0, quote_asset: 'USDT', volume_stale: false }),
+    const zero = turnoverView(
+      row('B', { turnover: 0, turnover_unit: 'USDT', volume: 0, volume_unit: 'BTC', volume_stale: false }),
     )
     expect(zero.text).toBe('0')
-    expect(zero.details.join(' · ')).toMatch(/成交额 0 USDT/)
-    expect(volumeView(row('C', { volume: 12, volume_stale: true })).details[0]).toMatch(/过期/)
-    expect(volumeView(row('C', { volume: NaN, volume_stale: false })).text).toBe('—')
+    expect(zero.details.join(' · ')).toMatch(/精确值 0 USDT/)
+    expect(turnoverView(row('C', { turnover: 12, volume_stale: true })).details[0]).toMatch(/过期/)
+    expect(turnoverView(row('C', { turnover: NaN, volume_stale: false })).text).toBe('—')
+    // 只有成交量、没有成交额（例如币本位缺少合约面值）时不冒充成交额
+    expect(turnoverView(row('C', { volume: 12, turnover: null, volume_stale: false })).text).toBe('—')
   })
 
   it('signs funding rates and hides stale ones', () => {

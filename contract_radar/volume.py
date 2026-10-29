@@ -1,4 +1,4 @@
-"""Normalize rolling 24h ticker volume without mixing UM coins and CM contracts."""
+"""Normalize rolling 24h ticker volume and turnover without mixing UM coins and CM contracts."""
 
 from __future__ import annotations
 
@@ -45,8 +45,23 @@ class Volume:
             raise ValueError("未知合约市场")
         return cls(volume, base_volume, quote_volume, now, close_time)
 
+    def turnover(self, market, metadata):
+        """24h 成交额（报价资产计）。
+
+        U本位直接取 quoteVolume；币本位每张合约面值固定（contractSize，单位 USD），
+        成交额 = 张数 × 面值，是精确值而非按现价估算。面值缺失时返回 None。
+        """
+        if market == "UM":
+            return self.quote_volume
+        size = metadata.get("contractSize")
+        if isinstance(size, (int, float)) and not isinstance(size, bool) and math.isfinite(size) and size > 0:
+            return self.volume * size
+        return None
+
     def snapshot(self, market, metadata, now, max_age):
         return {
+            "turnover": self.turnover(market, metadata),
+            "turnover_unit": turnover_unit(market, metadata),
             "volume": self.volume,
             "volume_unit": "张" if market == "CM" else metadata.get("baseAsset", ""),
             "base_volume": self.base_volume,
@@ -59,8 +74,28 @@ class Volume:
         }
 
 
+def turnover_unit(market, metadata):
+    quote = metadata.get("quoteAsset", "")
+    if market == "CM":
+        return quote or "USD"  # 币本位合约面值以美元计
+    return quote
+
+
+def contract_size(value):
+    """exchangeInfo 的 contractSize；非有限正数时返回 None。"""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
 def missing_volume(market, metadata):
     return {
+        "turnover": None,
+        "turnover_unit": turnover_unit(market, metadata),
         "volume": None,
         "volume_unit": "张" if market == "CM" else metadata.get("baseAsset", ""),
         "base_volume": None,
