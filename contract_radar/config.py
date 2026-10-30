@@ -18,6 +18,8 @@ class Settings:
     ws_batch: int = 75
     refresh_seconds: int = 3600
     volume_refresh_seconds: int = 60
+    # 指标策略分析（自选列表）的刷新周期：每轮更新24h行情与资金费率，K线只在新收盘时重新下载。
+    strategy_refresh_seconds: int = 60
     # 0.165s keeps the startup burst within the owner-set 1920 weight/min target at
     # klines weight 5 (60/0.165*5 = 1818, +50 steady-state = 1868 <= 1920); the 2400
     # hard cap was met at 0.13s but the owner target was not (measured peak 2130).
@@ -55,6 +57,7 @@ class Settings:
             "ws_batch": (1, 200),
             "refresh_seconds": (60, 86400),
             "volume_refresh_seconds": (30, 300),
+            "strategy_refresh_seconds": (30, 600),
             "retry_attempts": (1, 5),
             "resync_capacity": (1, 10000),
             "http_workers": (1, 128),

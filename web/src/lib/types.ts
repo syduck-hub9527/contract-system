@@ -62,7 +62,7 @@ export interface EventsResponse {
   events: SignalEvent[]
 }
 
-export type Filter = 'slope-up' | 'slope-down' | 'history'
+export type Filter = 'slope-up' | 'slope-down' | 'history' | 'strategy'
 export type MarketFilter = 'all' | Market
 export type Direction = 'up' | 'down' | ''
 

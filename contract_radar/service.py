@@ -29,6 +29,7 @@ from .indicators import (
     update_pair,
     volume_ratio,
 )
+from .strategy import StrategyEngine
 from .volume import Volume, contract_size, missing_volume
 
 LOG = logging.getLogger("difradar")
@@ -93,6 +94,8 @@ class Radar:
         self.data_dir = Path(self.settings.data_dir).expanduser() if self.settings.data_dir else None
         self._saved_states: dict[tuple[str, str], Pair] = {}
         self._persist_loaded = False
+        # 指标策略分析：只分析自选列表（默认截图中的合约），与全市场雷达共用限流与停止事件
+        self.strategy = StrategyEngine(self.settings, self.client, self.stop_event, self.now_ms)
 
     def now_ms(self) -> int:
         return int(time.time() * 1000) + self.time_offset_ms
@@ -654,6 +657,7 @@ class Radar:
                 state.ws_connected = False
             for key in self.ws_online:
                 self.ws_online[key] = False
+        self.strategy.close()
         for timer in timers:
             timer.cancel()
         for socket in sockets:
@@ -716,6 +720,7 @@ class Radar:
             return
         self._load_persisted()
         self._sync_time()
+        self._spawn(self.strategy.run, "strategy")
         jobs = []
         for market in self.enabled_markets:
             try:

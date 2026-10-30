@@ -4,12 +4,14 @@ import { AlertTriangle, Radar } from 'lucide-react'
 
 import { Header, type LinkTone } from '@/components/Header'
 import { HistoryTable, SignalTable } from '@/components/SignalTable'
+import { StrategyPanel } from '@/components/StrategyPanel'
 import { StatCards } from '@/components/StatCards'
 import { Controls, FilterTabs, TABS } from '@/components/Toolbar'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { useRadar } from '@/hooks/useRadar'
+import { useStrategy } from '@/hooks/useStrategy'
 import { fmtTime } from '@/lib/format'
 import {
   beep,
@@ -66,6 +68,7 @@ export default function App() {
   const [multText, setMultText] = useState(() => initialNumber(KEYS.slopeMult, '3.0'))
   const [minText, setMinText] = useState(() => initialNumber(KEYS.slopeMin, '0.100'))
   const [notify, setNotify] = useState(() => load(KEYS.notify) === '1')
+  const strategy = useStrategy(filter === 'strategy')
 
   const mult = parseMult(multText)
   const min = parseMin(minText)
@@ -105,7 +108,7 @@ export default function App() {
 
   useEffect(() => {
     if (!pollSeq) return
-    if (filter === 'history') {
+    if (filter === 'history' || filter === 'strategy') {
       baseline.current = null
       return
     }
@@ -216,8 +219,14 @@ export default function App() {
       ? `面板刷新 ${fmtTime(state.server_time)} · WS ${state.ws_online}/${state.ws_expected}`
       : '行情更新时间 —'
 
+  const strategyCount = strategy.data?.items.length ?? 0
   const countText =
-    filter === 'history' ? (
+    filter === 'strategy' ? (
+      <>
+        自选 <b className="text-foreground">{strategyCount}</b> 个U本位合约 · 15分钟 / 1小时 / 4小时
+        多指标评分，点开一行查看明细
+      </>
+    ) : filter === 'history' ? (
       <>
         最近5分钟 急拉 <b className="text-foreground">{shownUp}</b> 条 · 急跌{' '}
         <b className="text-foreground">{shownEvents.length - shownUp}</b> 条 · 超过5分钟自动移除
@@ -296,21 +305,23 @@ export default function App() {
             <h2 className="m-0 text-[17px] font-bold">合约信号监控</h2>
             <div className="mt-[18px] flex flex-wrap items-center gap-3">
               <FilterTabs active={filter} />
-              <Controls
-                market={market}
-                onMarket={changeMarket}
-                mult={multText}
-                onMult={changeMult}
-                onMultCommit={commitMult}
-                min={minText}
-                onMin={changeMin}
-                onMinCommit={commitMin}
-                onReset={resetThreshold}
-                notify={notify}
-                onNotify={toggleNotify}
-                query={query}
-                onQuery={changeQuery}
-              />
+              {filter !== 'strategy' && (
+                <Controls
+                  market={market}
+                  onMarket={changeMarket}
+                  mult={multText}
+                  onMult={changeMult}
+                  onMultCommit={commitMult}
+                  min={minText}
+                  onMin={changeMin}
+                  onMinCommit={commitMin}
+                  onReset={resetThreshold}
+                  notify={notify}
+                  onNotify={toggleNotify}
+                  query={query}
+                  onQuery={changeQuery}
+                />
+              )}
             </div>
           </div>
 
@@ -354,11 +365,14 @@ export default function App() {
               />
             )}
           </TabsContent>
+          <TabsContent value="strategy">
+            {filter === 'strategy' && <StrategyPanel feed={strategy} />}
+          </TabsContent>
         </motion.section>
       </Tabs>
 
       <footer className="text-muted-foreground mt-5 text-center text-[11px] leading-relaxed">
-        只读取币安公开行情，不下单、不需要 API Key。EMA21 急拉、急跌是盘中辅助信号，K线收盘前可能变化，不能保证盈利。
+        只读取币安公开行情，不下单、不需要 API Key。EMA21 急拉、急跌是盘中辅助信号，K线收盘前可能变化；策略评分只汇总技术指标，不构成交易建议，均不能保证盈利。
       </footer>
     </div>
   )

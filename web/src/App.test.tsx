@@ -1,10 +1,11 @@
 // 页面集成测试：沿用旧版 tests/test_ui.cjs 与 tests/test_ui_v11.cjs 覆盖的全部行为。
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
 import { TooltipProvider } from './components/ui/tooltip'
+import type { StrategyItem, StrategyState } from './lib/strategy'
 import type { RadarState, Row, SignalEvent } from './lib/types'
 
 const T0 = 1_800_000_000_000
@@ -161,11 +162,12 @@ describe('急拉 / 急跌标签页', () => {
     ]
     const ui = await mount()
 
-    // 只有三个标签：急拉（默认）、急跌、信号记录；不再出现金叉死叉
+    // 四个标签：急拉（默认）、急跌、信号记录、策略分析；雷达标签页不再出现金叉死叉
     expect([...ui.view.container.querySelectorAll('[data-filter]')].map((b) => b.getAttribute('data-filter'))).toEqual([
       'slope-up',
       'slope-down',
       'history',
+      'strategy',
     ])
     expect(ui.$('[data-filter="slope-up"]')).toHaveAttribute('data-state', 'active')
     expect(ui.names()).toEqual(['ETHUSD_PERP', 'OLDERUSDT'])
@@ -473,5 +475,174 @@ describe('稳定排序、信号记录与提醒', () => {
     await mount()
     expect(screen.getByTestId('warning')).toHaveTextContent('无法获取币安合约行情：HTTP 451')
     expect(screen.getByTestId('live-dot')).toHaveAttribute('data-tone', 'error')
+  })
+})
+
+// ---- 策略分析标签页 ----
+
+const item = (symbol: string, extra: Partial<StrategyItem> = {}): StrategyItem => ({
+  symbol,
+  name: symbol,
+  contract_type: 'TRADIFI_PERPETUAL',
+  status: 'ok',
+  error: null,
+  frame_errors: {},
+  price: 100,
+  change_pct: 3.9,
+  turnover: 2.539e9,
+  funding_rate: 0.0001,
+  next_funding_time: T0 + 3_600_000,
+  updated_at: T0,
+  score: 52,
+  level: 2,
+  verdict: '强烈看多',
+  resonance: '多周期共振向上',
+  levels: { frame: '1h', resistance: 110, support: 90, boll_upper: 108, boll_lower: 92, atr_pct: 1.2 },
+  frames: { '15m': null, '1h': null, '4h': null },
+  ...extra,
+})
+
+/** 在雷达假后端之上加上 /dif-api/strategy 与 /dif-api/watchlist */
+function strategyBackend(symbols: string[]) {
+  const fake = backend()
+  const radarFetch = globalThis.fetch as unknown as (url: string) => Promise<unknown>
+  const data: StrategyState = {
+    server_time: T0,
+    refreshed_at: T0,
+    refresh_seconds: 60,
+    persisted: false,
+    phase: '已分析 2 个合约',
+    errors: [],
+    frames: ['15m', '1h', '4h'],
+    max_symbols: 30,
+    defaults: ['SKHYNIXUSDT', 'BTCUSDT'],
+    items: symbols.map((s) => item(s)),
+  }
+  const posts: unknown[] = []
+  const reply = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => structuredClone(body) })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/dif-api/strategy') return reply(200, data)
+      if (url === '/dif-api/watchlist') {
+        const body = JSON.parse(String(init?.body))
+        posts.push(body)
+        expect(init?.method).toBe('POST')
+        expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json')
+        if (body.action === 'add') {
+          if (body.symbol === 'NOPEUSDT') return reply(400, { error: 'NOPEUSDT 不是交易中的U本位永续合约' })
+          data.items.push(item(body.symbol, { status: 'loading', score: null, verdict: null }))
+        } else if (body.action === 'remove') {
+          data.items = data.items.filter((i) => i.symbol !== body.symbol)
+        } else if (body.action === 'reset') {
+          data.items = data.defaults.map((s) => item(s))
+        }
+        return reply(200, data)
+      }
+      return radarFetch(url)
+    }),
+  )
+  return { fake, data, posts }
+}
+
+describe('策略分析标签页', () => {
+  it('lists only the watchlist and does not poll until opened', async () => {
+    const { fake } = strategyBackend(['SKHYNIXUSDT', 'BTCUSDT'])
+    const ui = await mount()
+    expect(intervals.some(([, d]) => d === 5000)).toBe(false)
+    await ui.tab('strategy')
+    expect(intervals.some(([, d]) => d === 5000)).toBe(true)
+    expect(screen.queryByTestId('slope-mult')).toBeNull() // 雷达阈值控件只在雷达标签页显示
+    const rows = screen.getAllByTestId('strategy-row')
+    expect(rows.map((r) => r.getAttribute('data-symbol'))).toEqual(['SKHYNIXUSDT', 'BTCUSDT'])
+    expect(rows[0]).toHaveTextContent('强烈看多')
+    expect(rows[0]).toHaveTextContent('+52')
+    expect(rows[0]).toHaveTextContent('+3.90%')
+    expect(rows[0]).toHaveTextContent('TradFi')
+    expect(screen.getByTestId('count')).toHaveTextContent('自选 2 个U本位合约')
+    expect(screen.getByText(/未设置 --data-dir/)).toBeInTheDocument()
+    expect(fake.fetched).toContain('/dif-api/state')
+  })
+
+  it('adds a contract, normalizes the code and shows server errors', async () => {
+    const { posts } = strategyBackend(['BTCUSDT'])
+    const ui = await mount()
+    await ui.tab('strategy')
+    const input = screen.getByTestId('strategy-input')
+    await ui.user.type(input, ' nvda ')
+    await ui.user.click(screen.getByTestId('strategy-add'))
+    await act(flush)
+    expect(posts).toEqual([{ action: 'add', symbol: 'NVDAUSDT' }])
+    expect(screen.getAllByTestId('strategy-row').map((r) => r.getAttribute('data-symbol'))).toEqual([
+      'BTCUSDT',
+      'NVDAUSDT',
+    ])
+    expect(screen.getByTestId('strategy-message')).toHaveTextContent('已添加 NVDAUSDT')
+    expect(input).toHaveValue('')
+
+    await ui.user.type(input, 'btcusdt{enter}') // 已在列表中：不发请求
+    await act(flush)
+    expect(posts).toHaveLength(1)
+    expect(screen.getByTestId('strategy-message')).toHaveTextContent('BTCUSDT 已在自选列表中')
+
+    await ui.user.clear(input)
+    await ui.user.type(input, 'NOPE{enter}')
+    await act(flush)
+    expect(screen.getByTestId('strategy-message')).toHaveTextContent('不是交易中的U本位永续合约')
+
+    await ui.user.clear(input)
+    await ui.user.type(input, 'BTC-PERP{enter}')
+    await act(flush)
+    expect(posts).toHaveLength(2)
+    expect(screen.getByTestId('strategy-message')).toHaveTextContent('输入U本位合约代码')
+  })
+
+  it('removes after a second confirming click, and resets to the defaults', async () => {
+    const { posts } = strategyBackend(['SKHYNIXUSDT', 'BTCUSDT', 'NVDAUSDT'])
+    const ui = await mount()
+    await ui.tab('strategy')
+    const remove = screen.getByTestId('remove-NVDAUSDT')
+    await ui.user.click(remove)
+    expect(posts).toEqual([])
+    expect(remove).toHaveTextContent('确认删除')
+    await ui.user.click(remove)
+    await act(flush)
+    expect(posts).toEqual([{ action: 'remove', symbol: 'NVDAUSDT' }])
+    await waitFor(() => expect(screen.getAllByTestId('strategy-row')).toHaveLength(2)) // 等待离场动画
+
+    await ui.user.click(screen.getByTestId('remove-BTCUSDT'))
+    await ui.user.click(screen.getByTestId('remove-BTCUSDT'))
+    await act(flush)
+    await ui.user.click(screen.getByTestId('strategy-reset'))
+    await act(flush)
+    expect(posts.at(-1)).toEqual({ action: 'reset' })
+    await waitFor(() =>
+      expect(screen.getAllByTestId('strategy-row').map((r) => r.getAttribute('data-symbol'))).toEqual([
+        'SKHYNIXUSDT',
+        'BTCUSDT',
+      ]),
+    )
+  })
+
+  it('expands a row to show per-frame indicators', async () => {
+    const { data } = strategyBackend(['MUUSDT'])
+    data.items[0].frames['1h'] = {
+      open_time: T0, close_time: T0 + 3_599_999, bars: 498, close: 100, score: 40,
+      parts: {}, ema21: 99, ema50: 97, ema200: 90, dif: 0.5, dea: 0.3, hist: 0.2, rsi: 62.3,
+      boll_upper: 104, boll_mid: 100, boll_lower: 96, pct_b: 0.5, boll_width: 0.08,
+      kdj_k: 70, kdj_d: 60, kdj_j: 90, adx: 28, pdi: 30, mdi: 12, atr: 1.2, atr_pct: 1.2,
+      volume_ratio: 1.8, high20: 105, low20: 95,
+      signals: [{ text: '均线多头排列', tone: 'up', group: 'ema' }],
+    }
+    data.items[0].frame_errors = { '4h': '已收盘K线不足60根，暂不分析' }
+    const ui = await mount()
+    await ui.tab('strategy')
+    expect(screen.queryByTestId('detail')).toBeNull()
+    await ui.user.click(screen.getByRole('button', { expanded: false }))
+    const detail = screen.getByTestId('detail')
+    expect(detail).toHaveTextContent('均线多头排列')
+    expect(detail).toHaveTextContent('62.3')
+    expect(detail).toHaveTextContent('已收盘K线不足60根')
+    expect(detail).toHaveTextContent('+0.0100%')
   })
 })

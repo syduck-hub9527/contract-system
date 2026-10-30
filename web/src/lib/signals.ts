@@ -99,7 +99,7 @@ export function filterRows(
   t: Threshold,
   seen: Map<string, Seen>,
 ) {
-  if (filter === 'history') return []
+  if (filter !== 'slope-up' && filter !== 'slope-down') return []
   const want = filter === 'slope-up' ? 'up' : 'down'
   return rows
     .filter((r) => matchesQuery(r.market, r.symbol, q) && slopeSignal(r, t) === want)

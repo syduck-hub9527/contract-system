@@ -14,6 +14,7 @@ export const TABS: { value: Filter; label: string }[] = [
   { value: 'slope-up', label: 'EMA21 急拉' },
   { value: 'slope-down', label: 'EMA21 急跌' },
   { value: 'history', label: '信号记录' },
+  { value: 'strategy', label: '策略分析' },
 ]
 
 export function FilterTabs({ active }: { active: Filter }) {

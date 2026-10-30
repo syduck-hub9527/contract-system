@@ -1,6 +1,6 @@
 # 币安合约 5 分钟 EMA21 急拉急跌监控
 
-实时扫描所有**交易中的永续合约**（默认 U 本位 + 币本位），页面专注于 **EMA21 急拉 / 急跌**，分为“EMA21 急拉”“EMA21 急跌”“信号记录”三个标签页。系统计算：
+实时扫描所有**交易中的永续合约**（默认 U 本位 + 币本位），页面专注于 **EMA21 急拉 / 急跌**，分为“EMA21 急拉”“EMA21 急跌”“信号记录”三个标签页；另有“策略分析”标签页，只对自选合约做多周期指标分析。系统计算：
 
 - `EMA21`、`EMA50`、`EMA200`，均基于**5分钟收盘价**。
 - 价格相对 EMA50（约4小时方向）与 EMA200（约1天方向）的位置，显示在“趋势”列；默认不强制过滤。
@@ -11,6 +11,7 @@
 - 后台记录（供日后统计，页面不显示）：每条信号还会记录量能、24h成交额、资金费率，以及之后 5/15/30/60 分钟的价格和1小时内的最高、最低，通过 `/api/events` 提供；启动时加 `--data-dir` 会追加写入 `events.jsonl`，内存保留最近2000条。
 - **稳定排序与持续时长**：列表按信号首次出现的时间由新到旧排列，新信号出现在顶部，已有的行不再随每次行情更新跳动；信号旁显示已持续的时间。
 - **新信号提醒**：点击“提醒”开启后，当前标签页出现新信号时发出浏览器通知和提示音；页面在后台时标题会显示未看信号数。设置保存在浏览器中。
+- **策略分析**标签页（指标策略分析系统）：只分析**自选列表**里的U本位永续合约，默认是币安App“自选 · 合约 · U本位”截图中的 9 个：SKHYNIXUSDT（SK 海力士）、SNDKUSDT（闪迪）、BZUSDT（布伦特原油）、MUUSDT（美光科技）、BTCUSDT、ETHUSDT、SOXLUSDT（半导体三倍做多）、KORUUSDT（韩国三倍做多）、SPCXUSDT（太空探索技术公司）。页面上输入代码点“添加”即可加入（只写 `NVDA` 会补成 `NVDAUSDT`，服务端按币安 `exchangeInfo` 校验必须是交易中的永续合约），每行的删除按钮点两次确认后移除，“恢复默认”回到上述 9 个；最多 30 个。详见下方“策略分析”一节。
 
 ## 启动方法
 
@@ -127,10 +128,11 @@ python -m contract_radar
 | `RADAR_WORKERS` / `RADAR_RESYNC_WORKERS` | 7 / 2 | 初始化与同步并发 |
 | `RADAR_WS_BATCH` | 75 | 每条WS订阅数 |
 | `RADAR_REFRESH_SECONDS` | 3600 | 合约列表与时钟刷新周期 |
+| `RADAR_STRATEGY_REFRESH_SECONDS` | 60 | 策略分析刷新周期（24h行情与资金费率；K线只在新收盘时重新下载），允许30至600秒 |
 | `RADAR_VOLUME_REFRESH_SECONDS` | 60 | 成交量与币本位资金费率的刷新周期（U本位资金费率在标记价格流断流时也按此回退），允许30至300秒 |
 | `RADAR_REQUEST_SPACING` | 0.165 | 每5请求权重占用的秒数（按权重计费）：580根K线请求占0.165秒，权重1的请求占0.033秒；全部REST合计≤60/0.165×5=1818权重/分钟≤所有者目标1920 |
 | `RADAR_WEIGHT_TARGET` | 1920 | 币安返回的每分钟已用权重达到此值时，所有REST请求暂停到下一分钟 |
-| `RADAR_DATA_DIR` | 空 | 数据目录：保存 `state.json`（快速重启）与 `events.jsonl`（信号记录）；为空时不写文件 |
+| `RADAR_DATA_DIR` | 空 | 数据目录：保存 `state.json`（快速重启）、`events.jsonl`（信号记录）与 `watchlist.json`（策略分析自选列表）；为空时不写文件 |
 | `RADAR_SLOPE_MULT` / `RADAR_SLOPE_MIN` | 3.0 / 0.1 | 服务端记录急拉急跌使用的斜率倍数与最小变化（%）；页面阈值只影响显示 |
 | `RADAR_CONNECT_TIMEOUT` / `RADAR_READ_TIMEOUT` | 5 / 15 | REST超时/秒 |
 | `RADAR_RETRY_ATTEMPTS` | 3 | REST最大尝试次数 |
@@ -178,7 +180,7 @@ npm run dev        # 浏览器打开 http://localhost:5173
 ```bash
 cd web
 npm run typecheck
-npm test           # Vitest + Testing Library：标签页、阈值与保存、排序与持续时间、信号记录、成交额/资金费率单元格、提醒、断线
+npm test           # Vitest + Testing Library：标签页、阈值与保存、排序与持续时间、信号记录、成交额/资金费率单元格、提醒、断线、策略分析增删
 npm run build      # 生成 contract_radar/assets/dashboard.html（单文件，内联 JS/CSS）
 ```
 
@@ -276,6 +278,33 @@ Python 测试锁定构建后页面的关键结构（接口地址、存储键、�
 | `done` | 是否已跟踪满1小时、不再更新 |
 
 配置 `--data-dir` 时，结束的记录每60秒追加写入 `events.jsonl`（每行一条JSON），退出时未结束的记录也会写入；启动时读取最近2000条。
+
+## 策略分析
+
+与全市场 EMA21 雷达相互独立，只处理自选列表。
+
+- **合约范围**：U本位，`contractType` 为 `PERPETUAL` 或 `TRADIFI_PERPETUAL`（币安股票、ETF、大宗商品永续；全市场雷达只扫描 `PERPETUAL`，所以截图里的 TradFi 合约只在本标签页出现，页面以 “TradFi” 标记）。TradFi 合约跟随标的市场交易时段，休市期间没有新K线，指标停留在最近收盘值。
+- **数据**：每个合约取 15m / 1h / 4h 各 499 根K线（`/fapi/v1/klines`，权重 2），只用**已收盘**K线计算，评分不会在一根K线内跳动；某周期出现新的收盘K线后才重新下载，休市中的合约每 15 分钟检查一次。每轮（默认60秒）另取 `/fapi/v1/ticker/24hr` 与 `/fapi/v1/premiumIndex`（带 symbol，各权重 1），合约列表 `exchangeInfo` 每小时一次。9 个合约稳态约 20 权重/分钟（主要是每轮的行情与资金费率），与雷达共用同一个限流器。
+- **指标与计分**（每周期合计 ±9.5 分，换算为 −100…+100）：
+
+| 指标 | 参数 | 分值 | 规则 |
+|---|---|---|---|
+| 均线排列 | EMA21/50/200 | ±2 | 价格>EMA21、EMA21>EMA50、EMA50>EMA200 各算一项，全部偏多为“多头排列”；不足200根时不看EMA200 |
+| MACD | 12,26,9 | ±2 | DIF 在 DEA 上/下 ±1，零轴上/下 ±0.5，最近3根金叉/死叉 ±0.5 |
+| RSI | 14（Wilder） | ±1 | ≥70 超买 −1、≤30 超卖 +1；ADX≥25 的同向强趋势中视为钝化不计分；55–70 +0.5，30–45 −0.5 |
+| 布林带 | 20,2 | ±1 | 中轨上/下 ±0.5；突破上/下轨视为偏离，反向 0.5；带宽处于近120根最低10%时提示收口 |
+| KDJ | 9,3,3 | ±1 | K 在 D 上/下 ±0.5；K<30 金叉 +0.5，K>70 死叉 −0.5 |
+| DMI/ADX | 14 | ±1.5 | ADX≥25 按 +DI/−DI 方向 ±1.5，20–25 ±0.75，<20 不计分 |
+| 量能 | 20根均量 | ±1 | 最近收盘K线成交量 ≥1.5 倍且收阳 +1、收阴 −1 |
+
+- **综合评分** = 15m×25% + 1h×35% + 4h×40%（缺失的周期不参与，权重重新归一）：≥45 强烈看多，≥15 偏多，−15～15 震荡，≤−15 偏空，≤−45 强烈看空。三个周期都 ≥15 或都 ≤−15 时标注“多周期共振”，方向相反时标注“周期分歧”。展开一行可看各周期全部指标值、信号，以及 1h 的 20 根高低区间、布林带、ATR 波动与资金费率。
+- **自选列表保存**：配置 `--data-dir` 时写入其中的 `watchlist.json`；未配置时只在内存中，重启后恢复默认 9 个（页面会提示）。
+- 评分是多个技术指标的机械汇总，用于快速浏览，不构成交易建议。
+
+接口：
+
+- `GET /api/strategy`（或 `/dif-api/strategy`）：`{server_time, refreshed_at, refresh_seconds, persisted, phase, errors, frames, max_symbols, defaults, items}`。`items` 按自选顺序，每项含 `symbol`、`name`、`contract_type`、`status`（`ok` / `loading` / `error`）、`error`、`frame_errors`、`price`、`change_pct`、`turnover`、`funding_rate`、`next_funding_time`、`updated_at`、`score`、`level`（−2…2）、`verdict`、`resonance`、`levels`、`frames`（每周期的指标值、`score`、`parts` 分项得分与 `signals`）。
+- `POST /api/watchlist`（或 `/dif-api/watchlist`），`Content-Type: application/json`，请求体 `{"action": "add", "symbol": "NVDAUSDT", "name": "可选"}`、`{"action": "remove", "symbol": "..."}` 或 `{"action": "reset"}`；成功返回与 `GET /api/strategy` 相同的内容，失败返回 `{"error": "..."}`（400 无效/不存在、404 不在列表、409 已存在、503 无法连接币安校验）。只接受 JSON，并拒绝 `Origin` 不在 `RADAR_ALLOWED_HOSTS` 内或 `Sec-Fetch-Site: cross-site` 的请求，防止其他网站跨站修改。
 
 ## 列表成交额
 
